@@ -1012,36 +1012,4 @@ HTML;
         echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 }
-
-    private function BuildPlaceholderHtml(string $message): string
-    {
-        $safe = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
-        return '<div style="font-family:Arial,sans-serif;padding:12px;background:#111;color:#eee;border:1px solid #444;">' . $safe . '</div>';
-    }
-
-    private function NormalizeHookName(string $hookName): string
-    {
-        $hookName = trim($hookName);
-
-        if ($hookName === '') {
-            $hookName = 'nestcam_' . $this->InstanceID;
-        }
-
-        $hookName = strtolower($hookName);
-        $hookName = preg_replace('/[^a-z0-9_-]+/', '_', $hookName);
-        $hookName = trim((string) $hookName, '_');
-
-        if ($hookName === '') {
-            $hookName = 'nestcam_' . $this->InstanceID;
-        }
-
-        return $hookName;
-    }
-
-    private function SendJson(array $payload, int $httpCode = 200): void
-    {
-        header('Content-Type: application/json; charset=utf-8');
-        http_response_code($httpCode);
-        echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    }
 }
