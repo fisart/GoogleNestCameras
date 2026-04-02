@@ -15,6 +15,7 @@ class NestCameraViewer extends IPSModuleStrict
         parent::Create();
 
         $this->RegisterPropertyInteger('TokenVariableID', 0);
+        $this->RegisterPropertyString('EnterpriseID', 'f779e361-a2e1-43ef-8ffd-dfd46d3e69ab');
         $this->RegisterPropertyString('SelectedDeviceName', '');
         $this->RegisterPropertyString('HookName', 'nestcam');
         $this->RegisterPropertyBoolean('AutoExtend', true);
@@ -28,8 +29,6 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterVariableString('StreamStatus', 'Stream Status', '', 20);
         $this->RegisterVariableString('SelectedCameraLabel', 'Selected Camera', '', 30);
         $this->RegisterVariableString('ExpiresAt', 'Expires At', '', 40);
-
-        $this->EnableAction('StreamStatus');
     }
 
     public function ApplyChanges(): void
@@ -83,7 +82,6 @@ class NestCameraViewer extends IPSModuleStrict
         $tokenVarID = $this->ReadPropertyInteger('TokenVariableID');
         $currentSelectedDevice = $this->ReadPropertyString('SelectedDeviceName');
 
-        // Only try to load devices if the token variable exists and is usable
         if ($tokenVarID > 0 && IPS_VariableExists($tokenVarID)) {
             $devices = $this->GetCachedDevices();
         } else {
@@ -104,7 +102,6 @@ class NestCameraViewer extends IPSModuleStrict
             ];
         }
 
-        // Keep the currently saved value selectable even if it is not in the live list
         if ($currentSelectedDevice !== '') {
             $found = false;
             foreach ($deviceOptions as $option) {
@@ -129,6 +126,11 @@ class NestCameraViewer extends IPSModuleStrict
                 'type'    => 'SelectVariable',
                 'name'    => 'TokenVariableID',
                 'caption' => 'Token Variable'
+            ],
+            [
+                'type'    => 'ValidationTextBox',
+                'name'    => 'EnterpriseID',
+                'caption' => 'Enterprise ID'
             ],
             [
                 'type'    => 'ValidationTextBox',
@@ -489,20 +491,7 @@ class NestCameraViewer extends IPSModuleStrict
 
     private function DetectEnterpriseId(): string
     {
-        $devices = json_decode($this->ReadAttributeString('CachedDevicesJson'), true);
-        if (is_array($devices) && count($devices) > 0) {
-            $firstName = (string) array_key_first($devices);
-            if (preg_match('#^enterprises/([^/]+)/devices/#', $firstName, $m)) {
-                return $m[1];
-            }
-        }
-
-        $selected = $this->ReadPropertyString('SelectedDeviceName');
-        if ($selected !== '' && preg_match('#^enterprises/([^/]+)/devices/#', $selected, $m)) {
-            return $m[1];
-        }
-
-        return '';
+        return trim($this->ReadPropertyString('EnterpriseID'));
     }
 
     private function GoogleRequest(string $url, string $method, ?array $body = null): array
