@@ -211,7 +211,21 @@ class NestCameraViewer extends IPSModuleStrict
         $this->SetValue('ViewerHTML', $this->RenderViewerHtml());
         echo 'Viewer rebuilt';
     }
+    public function RequestAction($Ident, $Value): void
+    {
+        switch ($Ident) {
+            case 'RefreshDevices':
+                $this->RefreshDevices();
+                break;
 
+            case 'RebuildViewer':
+                $this->RebuildViewer();
+                break;
+
+            default:
+                throw new Exception('Invalid Ident');
+        }
+    }
     protected function ProcessHookData(): void
     {
         $uri = $_SERVER['REQUEST_URI'] ?? '';
@@ -961,21 +975,7 @@ HTML;
         echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 }
-public function RequestAction($Ident, $Value): void
-{
-    switch ($Ident) {
-        case 'RefreshDevices':
-            $this->RefreshDevices();
-            break;
 
-        case 'RebuildViewer':
-            $this->RebuildViewer();
-            break;
-
-        default:
-            throw new Exception('Invalid Ident');
-    }
-}
 function NESTCAM_RefreshDevices(int $InstanceID): void
 {
     $instance = IPS_GetInstance($InstanceID);
