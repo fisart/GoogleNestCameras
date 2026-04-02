@@ -73,11 +73,30 @@ class NestCameraViewer extends IPSModuleStrict
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
         if (!is_array($form)) {
-            $form = ['elements' => [], 'actions' => [], 'status' => []];
+            $form = [
+                'elements' => [],
+                'actions'  => [],
+                'status'   => []
+            ];
         }
 
-        $devices = $this->GetCachedDevices();
-        $deviceOptions = [];
+        $tokenVarID = $this->ReadPropertyInteger('TokenVariableID');
+        $currentSelectedDevice = $this->ReadPropertyString('SelectedDeviceName');
+
+        // Only try to load devices if the token variable exists and is usable
+        if ($tokenVarID > 0 && IPS_VariableExists($tokenVarID)) {
+            $devices = $this->GetCachedDevices();
+        } else {
+            $devices = [];
+        }
+
+        $deviceOptions = [
+            [
+                'caption' => '',
+                'value'   => ''
+            ]
+        ];
+
         foreach ($devices as $deviceName => $device) {
             $deviceOptions[] = [
                 'caption' => $device['label'],
@@ -85,49 +104,67 @@ class NestCameraViewer extends IPSModuleStrict
             ];
         }
 
+        // Keep the currently saved value selectable even if it is not in the live list
+        if ($currentSelectedDevice !== '') {
+            $found = false;
+            foreach ($deviceOptions as $option) {
+                if ($option['value'] === $currentSelectedDevice) {
+                    $found = true;
+                    break;
+                }
+            }
+
+            if (!$found) {
+                $deviceOptions[] = [
+                    'caption' => $currentSelectedDevice . ' (current)',
+                    'value'   => $currentSelectedDevice
+                ];
+            }
+        }
+
         $hookPath = '/hook/' . $this->NormalizeHookName($this->ReadPropertyString('HookName'));
 
         $form['elements'] = [
             [
-                'type' => 'SelectVariable',
-                'name' => 'TokenVariableID',
+                'type'    => 'SelectVariable',
+                'name'    => 'TokenVariableID',
                 'caption' => 'Token Variable'
             ],
             [
-                'type' => 'ValidationTextBox',
-                'name' => 'HookName',
+                'type'    => 'ValidationTextBox',
+                'name'    => 'HookName',
                 'caption' => 'Hook Name'
             ],
             [
-                'type' => 'Select',
-                'name' => 'SelectedDeviceName',
+                'type'    => 'Select',
+                'name'    => 'SelectedDeviceName',
                 'caption' => 'Camera',
                 'options' => $deviceOptions
             ],
             [
-                'type' => 'CheckBox',
-                'name' => 'AutoExtend',
+                'type'    => 'CheckBox',
+                'name'    => 'AutoExtend',
                 'caption' => 'Auto Extend Stream'
             ],
             [
-                'type' => 'CheckBox',
-                'name' => 'Debug',
+                'type'    => 'CheckBox',
+                'name'    => 'Debug',
                 'caption' => 'Show Debug in Viewer'
             ],
             [
-                'type' => 'Label',
+                'type'    => 'Label',
                 'caption' => 'Hook URL: ' . $hookPath
             ]
         ];
 
         $form['actions'] = [
             [
-                'type' => 'Button',
+                'type'    => 'Button',
                 'caption' => 'Refresh device list',
                 'onClick' => 'NESTCAM_RefreshDevices($id);'
             ],
             [
-                'type' => 'Button',
+                'type'    => 'Button',
                 'caption' => 'Rebuild viewer HTML',
                 'onClick' => 'NESTCAM_RebuildViewer($id);'
             ]
