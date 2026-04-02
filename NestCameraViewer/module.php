@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-class NestCameraViewer extends IPSModule
+class NestCameraViewer extends IPSModuleStrict
 {
     private const STATUS_CREATING = 101;
     private const STATUS_ACTIVE = 102;
@@ -163,7 +163,7 @@ class NestCameraViewer extends IPSModule
         echo 'Viewer rebuilt';
     }
 
-    public function ProcessHookData(): void
+    protected function ProcessHookData(): void
     {
         $uri = $_SERVER['REQUEST_URI'] ?? '';
         $hookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
