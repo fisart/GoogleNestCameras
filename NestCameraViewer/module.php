@@ -211,21 +211,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->SetValue('ViewerHTML', $this->RenderViewerHtml());
         echo 'Viewer rebuilt';
     }
-    public function RequestAction($Ident, $Value): void
-    {
-        switch ($Ident) {
-            case 'RefreshDevices':
-                $this->RefreshDevices();
-                break;
 
-            case 'RebuildViewer':
-                $this->RebuildViewer();
-                break;
-
-            default:
-                throw new Exception('Invalid Ident');
-        }
-    }
     protected function ProcessHookData(): void
     {
         $uri = $_SERVER['REQUEST_URI'] ?? '';
@@ -265,6 +251,7 @@ class NestCameraViewer extends IPSModuleStrict
                             'name'  => $name
                         ];
                     }
+
                     $this->SendJson([
                         'ok'      => true,
                         'devices' => $items,
@@ -974,24 +961,4 @@ HTML;
         http_response_code($httpCode);
         echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
-}
-
-function NESTCAM_RefreshDevices(int $InstanceID): void
-{
-    $instance = IPS_GetInstance($InstanceID);
-    if (($instance['ModuleInfo']['ModuleName'] ?? '') !== 'NestCameraViewer') {
-        throw new Exception('Instance is not a NestCameraViewer');
-    }
-
-    IPS_RequestAction($InstanceID, 'RefreshDevices', true);
-}
-
-function NESTCAM_RebuildViewer(int $InstanceID): void
-{
-    $instance = IPS_GetInstance($InstanceID);
-    if (($instance['ModuleInfo']['ModuleName'] ?? '') !== 'NestCameraViewer') {
-        throw new Exception('Instance is not a NestCameraViewer');
-    }
-
-    IPS_RequestAction($InstanceID, 'RebuildViewer', true);
 }
