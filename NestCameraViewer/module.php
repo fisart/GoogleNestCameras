@@ -619,14 +619,14 @@ class NestCameraViewer extends IPSModuleStrict
         return implode("\n", $out);
     }
 
-private function RenderViewerHtml(): string
-{
-    $hookPath = '/hook/' . $this->NormalizeHookName($this->ReadPropertyString('HookName'));
-    $showDebug = $this->ReadPropertyBoolean('Debug') ? 'true' : 'false';
-    $autoExtend = $this->ReadPropertyBoolean('AutoExtend') ? 'true' : 'false';
-    $selectedDeviceName = $this->ReadPropertyString('SelectedDeviceName');
+    private function RenderViewerHtml(): string
+    {
+        $hookPath = '/hook/' . $this->NormalizeHookName($this->ReadPropertyString('HookName'));
+        $showDebug = $this->ReadPropertyBoolean('Debug') ? 'true' : 'false';
+        $autoExtend = $this->ReadPropertyBoolean('AutoExtend') ? 'true' : 'false';
+        $selectedDeviceName = $this->ReadPropertyString('SelectedDeviceName');
 
-    return <<<HTML
+        return <<<HTML
 <!doctype html>
 <html>
 <head>
@@ -1011,5 +1011,4 @@ HTML;
         http_response_code($httpCode);
         echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
-}
 }
