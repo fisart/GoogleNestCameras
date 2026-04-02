@@ -24,6 +24,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterAttributeString('CachedDevicesJson', '[]');
         $this->RegisterAttributeString('LastOfferSummary', '');
         $this->RegisterAttributeString('LastAnswerSummary', '');
+        $this->RegisterAttributeString('RegisteredHookName', '');
 
         $this->RegisterVariableString('ViewerHTML', 'Viewer', '~HTMLBox', 10);
         $this->RegisterVariableString('StreamStatus', 'Stream Status', '', 20);
@@ -36,7 +37,16 @@ class NestCameraViewer extends IPSModuleStrict
         parent::ApplyChanges();
 
         $hookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
-        $this->RegisterHook($hookName);
+        $oldHookName = $this->ReadAttributeString('RegisteredHookName');
+
+        if ($oldHookName !== '' && $oldHookName !== $hookName) {
+            $this->UnregisterHook($oldHookName);
+        }
+
+        if ($hookName !== '') {
+            $this->RegisterHook($hookName);
+            $this->WriteAttributeString('RegisteredHookName', $hookName);
+        }
 
         $token = $this->GetToken();
         if ($token === '') {
@@ -205,10 +215,11 @@ class NestCameraViewer extends IPSModuleStrict
     protected function ProcessHookData(): void
     {
         $uri = $_SERVER['REQUEST_URI'] ?? '';
+        $path = parse_url($uri, PHP_URL_PATH);
         $hookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
         $hookPath = '/hook/' . $hookName;
 
-        if (strpos($uri, $hookPath) !== 0) {
+        if ($path !== $hookPath) {
             http_response_code(404);
             echo 'Not found';
             return;
@@ -225,10 +236,9 @@ class NestCameraViewer extends IPSModuleStrict
 
                 case 'ping':
                     $this->SendJson([
-                        'ok' => true,
-                        'scriptID' => 0,
+                        'ok'         => true,
                         'instanceID' => $this->InstanceID,
-                        'message' => 'Backend reached'
+                        'message'    => 'Backend reached'
                     ]);
                     return;
 
@@ -252,6 +262,7 @@ class NestCameraViewer extends IPSModuleStrict
                     $deviceName = $this->ResolveRequestDeviceName();
                     $url = 'https://smartdevicemanagement.googleapis.com/v1/' . $deviceName;
                     $result = $this->GoogleRequest($url, 'GET');
+
                     if ($result['httpCode'] !== 200) {
                         $this->SendJson([
                             'ok'       => false,
@@ -261,6 +272,7 @@ class NestCameraViewer extends IPSModuleStrict
                         ], 500);
                         return;
                     }
+
                     $this->SendJson([
                         'ok'     => true,
                         'device' => json_decode($result['response'], true)
@@ -270,13 +282,15 @@ class NestCameraViewer extends IPSModuleStrict
                 case 'generate':
                     $deviceName = $this->ResolveRequestDeviceName();
                     $offerSdp = $this->ReadPostedOfferSdp();
+
                     if ($offerSdp === '') {
                         $this->SendJson([
-                            'ok' => false,
+                            'ok'    => false,
                             'error' => 'Missing offerSdp'
                         ], 400);
                         return;
                     }
+
                     if (!preg_match("/(\r\n|\n)$/", $offerSdp)) {
                         $offerSdp .= "\n";
                     }
@@ -288,7 +302,9 @@ class NestCameraViewer extends IPSModuleStrict
                             'offerSdp' => $offerSdp
                         ]
                     ];
+
                     $result = $this->GoogleRequest($url, 'POST', $body);
+
                     if ($result['httpCode'] !== 200) {
                         $this->SendJson([
                             'ok'           => false,
@@ -302,6 +318,7 @@ class NestCameraViewer extends IPSModuleStrict
 
                     $data = json_decode($result['response'], true);
                     $answerSdp = $data['results']['answerSdp'] ?? '';
+
                     $this->WriteAttributeString('LastOfferSummary', $this->SummarizeSdp($offerSdp));
                     $this->WriteAttributeString('LastAnswerSummary', $this->SummarizeSdp($answerSdp));
                     $this->SetValue('ExpiresAt', (string) ($data['results']['expiresAt'] ?? ''));
@@ -320,6 +337,7 @@ class NestCameraViewer extends IPSModuleStrict
                 case 'extend':
                     $deviceName = $this->ResolveRequestDeviceName();
                     $mediaSessionId = $_POST['mediaSessionId'] ?? '';
+
                     if ($mediaSessionId === '') {
                         $this->SendJson(['ok' => false, 'error' => 'Missing mediaSessionId'], 400);
                         return;
@@ -332,7 +350,9 @@ class NestCameraViewer extends IPSModuleStrict
                             'mediaSessionId' => $mediaSessionId
                         ]
                     ];
+
                     $result = $this->GoogleRequest($url, 'POST', $body);
+
                     if ($result['httpCode'] !== 200) {
                         $this->SendJson([
                             'ok'       => false,
@@ -342,8 +362,10 @@ class NestCameraViewer extends IPSModuleStrict
                         ], 500);
                         return;
                     }
+
                     $data = json_decode($result['response'], true);
                     $this->SetValue('ExpiresAt', (string) ($data['results']['expiresAt'] ?? ''));
+
                     $this->SendJson([
                         'ok'        => true,
                         'expiresAt' => $data['results']['expiresAt'] ?? ''
@@ -353,6 +375,7 @@ class NestCameraViewer extends IPSModuleStrict
                 case 'stop':
                     $deviceName = $this->ResolveRequestDeviceName();
                     $mediaSessionId = $_POST['mediaSessionId'] ?? '';
+
                     if ($mediaSessionId === '') {
                         $this->SendJson(['ok' => false, 'error' => 'Missing mediaSessionId'], 400);
                         return;
@@ -365,7 +388,9 @@ class NestCameraViewer extends IPSModuleStrict
                             'mediaSessionId' => $mediaSessionId
                         ]
                     ];
+
                     $result = $this->GoogleRequest($url, 'POST', $body);
+
                     if ($result['httpCode'] !== 200) {
                         $this->SendJson([
                             'ok'       => false,
@@ -375,6 +400,7 @@ class NestCameraViewer extends IPSModuleStrict
                         ], 500);
                         return;
                     }
+
                     $this->SetValue('StreamStatus', 'Stream stopped');
                     $this->SetValue('ExpiresAt', '');
                     $this->SendJson(['ok' => true]);
@@ -401,6 +427,7 @@ class NestCameraViewer extends IPSModuleStrict
         if ($varID <= 0 || !IPS_VariableExists($varID)) {
             return '';
         }
+
         return trim((string) GetValue($varID));
     }
 
@@ -418,6 +445,7 @@ class NestCameraViewer extends IPSModuleStrict
 
         $url = 'https://smartdevicemanagement.googleapis.com/v1/enterprises/' . $enterpriseId . '/devices';
         $result = $this->GoogleRequest($url, 'GET');
+
         if ($result['httpCode'] !== 200) {
             return null;
         }
@@ -467,6 +495,7 @@ class NestCameraViewer extends IPSModuleStrict
         if (!is_array($devices) || count($devices) === 0) {
             $devices = $this->FetchDevices();
         }
+
         return is_array($devices) ? $devices : [];
     }
 
@@ -476,6 +505,7 @@ class NestCameraViewer extends IPSModuleStrict
         if ($selected !== '' && isset($devices[$selected])) {
             return $selected;
         }
+
         return (string) array_key_first($devices);
     }
 
@@ -483,9 +513,11 @@ class NestCameraViewer extends IPSModuleStrict
     {
         $devices = $this->GetCachedDevices();
         $requested = $_POST['deviceName'] ?? $_GET['deviceName'] ?? '';
+
         if ($requested !== '' && isset($devices[$requested])) {
             return $requested;
         }
+
         return $this->ResolveSelectedDeviceName($devices);
     }
 
@@ -568,6 +600,7 @@ class NestCameraViewer extends IPSModuleStrict
             if ($line === '') {
                 continue;
             }
+
             if (
                 str_starts_with($line, 'm=') ||
                 str_starts_with($line, 'a=group:') ||
@@ -644,13 +677,13 @@ class NestCameraViewer extends IPSModuleStrict
       if (!chkDebug.checked && !force) return;
       logLines.push(msg);
       if (!chkDebug.checked && logLines.length > 8) logLines.shift();
-      statusEl.textContent = logLines.join('\n\n');
+      statusEl.textContent = logLines.join('\\n\\n');
       console.log(msg);
     }
 
     function summarizeSdp(sdp) {
       if (!sdp) return '(empty)';
-      const lines = sdp.split(/\r\n|\n/).filter(Boolean);
+      const lines = sdp.split(/\\r\\n|\\n/).filter(Boolean);
       return lines.filter(line =>
         line.startsWith('m=') ||
         line === 'a=sendrecv' ||
@@ -660,29 +693,37 @@ class NestCameraViewer extends IPSModuleStrict
         line.startsWith('a=group:') ||
         line.startsWith('a=mid:') ||
         line.startsWith('a=sctp-port:')
-      ).join('\n');
+      ).join('\\n');
     }
 
     function mungeNestAnswerSdp(answerSdp) {
-      const sections = answerSdp.split(/\r\nm=/);
+      const sections = answerSdp.split(/\\r\\nm=/);
       if (sections.length === 0) return answerSdp;
+
       const rebuilt = sections.map((section, index) => {
         let s = index === 0 ? section : 'm=' + section;
-        const isAudio = s.includes('\nm=audio') || s.startsWith('m=audio');
-        const isVideo = s.includes('\nm=video') || s.startsWith('m=video');
+        const isAudio = s.includes('\\nm=audio') || s.startsWith('m=audio');
+        const isVideo = s.includes('\\nm=video') || s.startsWith('m=video');
         if (isAudio || isVideo) {
-          s = s.replace(/\r?\na=sendrecv(\r?\n)/g, '\r\na=sendonly$1');
+          s = s.replace(/\\r?\\na=sendrecv(\\r?\\n)/g, '\\r\\na=sendonly$1');
         }
         return s;
       });
-      return rebuilt.join('\r\n');
+
+      return rebuilt.join('\\r\\n');
     }
 
     async function parseJsonResponse(res) {
       const text = await res.text();
       let data;
-      try { data = JSON.parse(text); } catch (e) { throw new Error('Backend did not return JSON: ' + text); }
-      if (!data.ok) throw new Error(JSON.stringify(data, null, 2));
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error('Backend did not return JSON: ' + text);
+      }
+      if (!data.ok) {
+        throw new Error(JSON.stringify(data, null, 2));
+      }
       return data;
     }
 
@@ -723,7 +764,7 @@ class NestCameraViewer extends IPSModuleStrict
         const data = await callBackendGet('info', cameraSelect.value);
         setStatus(JSON.stringify(data.device, null, 2));
       } catch (e) {
-        setStatus('Info failed:\n' + e.message);
+        setStatus('Info failed:\\n' + e.message);
       }
     }
 
@@ -741,7 +782,10 @@ class NestCameraViewer extends IPSModuleStrict
     }
 
     function clearExtendTimer() {
-      if (extendTimer) { clearInterval(extendTimer); extendTimer = null; }
+      if (extendTimer) {
+        clearInterval(extendTimer);
+        extendTimer = null;
+      }
     }
 
     function startExtendTimer() {
@@ -750,7 +794,11 @@ class NestCameraViewer extends IPSModuleStrict
       extendTimer = setInterval(async () => {
         if (!currentMediaSessionId || !currentDeviceName) return;
         try {
-          const data = await callBackendPost({ action: 'extend', deviceName: currentDeviceName, mediaSessionId: currentMediaSessionId });
+          const data = await callBackendPost({
+            action: 'extend',
+            deviceName: currentDeviceName,
+            mediaSessionId: currentMediaSessionId
+          });
           appendStatus('Extended stream. New expiry: ' + (data.expiresAt || 'unknown'));
         } catch (e) {
           appendStatus('Auto-extend failed: ' + e.message);
@@ -761,19 +809,31 @@ class NestCameraViewer extends IPSModuleStrict
     async function stopStream() {
       try {
         clearExtendTimer();
+
         if (currentMediaSessionId && currentDeviceName) {
           try {
-            await callBackendPost({ action: 'stop', deviceName: currentDeviceName, mediaSessionId: currentMediaSessionId });
-          } catch (e) {}
+            await callBackendPost({
+              action: 'stop',
+              deviceName: currentDeviceName,
+              mediaSessionId: currentMediaSessionId
+            });
+          } catch (e) {
+          }
         }
+
         currentMediaSessionId = '';
         lastBackendData = null;
-        if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+
+        if (pc) {
+          try { pc.close(); } catch (e) {}
+          pc = null;
+        }
+
         videoEl.pause();
         videoEl.srcObject = null;
         setStatus('Stream stopped.');
       } catch (e) {
-        setStatus('Stop failed:\n' + e.message);
+        setStatus('Stop failed:\\n' + e.message);
       }
     }
 
@@ -796,11 +856,13 @@ class NestCameraViewer extends IPSModuleStrict
 
         pc.ontrack = async (event) => {
           appendStatus('Track received: ' + event.track.kind);
+
           let stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
           videoEl.srcObject = stream;
           videoEl.muted = true;
           videoEl.autoplay = true;
           videoEl.playsInline = true;
+
           event.track.onunmute = async () => {
             try {
               await videoEl.play();
@@ -817,36 +879,41 @@ class NestCameraViewer extends IPSModuleStrict
 
         let offerSdp = pc.localDescription?.sdp || '';
         if (!offerSdp) throw new Error('Local offer SDP is empty.');
-        if (!offerSdp.endsWith('\n')) offerSdp += '\n';
+        if (!offerSdp.endsWith('\\n')) offerSdp += '\\n';
 
-        const data = await callBackendPost({ action: 'generate', deviceName: currentDeviceName, offerSdp: offerSdp });
+        const data = await callBackendPost({
+          action: 'generate',
+          deviceName: currentDeviceName,
+          offerSdp: offerSdp
+        });
+
         lastBackendData = data;
         currentMediaSessionId = data.mediaSessionId || '';
         const mungedAnswerSdp = mungeNestAnswerSdp(data.answerSdp);
 
         if (chkDebug.checked) {
-          appendStatus('Offer summary:\n' + (data.offerSummary || summarizeSdp(offerSdp)));
-          appendStatus('Original answer summary:\n' + (data.answerSummary || '(none)'));
-          appendStatus('Munged answer summary:\n' + summarizeSdp(mungedAnswerSdp));
+          appendStatus('Offer summary:\\n' + (data.offerSummary || summarizeSdp(offerSdp)));
+          appendStatus('Original answer summary:\\n' + (data.answerSummary || '(none)'));
+          appendStatus('Munged answer summary:\\n' + summarizeSdp(mungedAnswerSdp));
         }
 
         await pc.setRemoteDescription({ type: 'answer', sdp: mungedAnswerSdp });
-        setStatus('Stream started.\nExpires: ' + (data.expiresAt || 'unknown'));
+        setStatus('Stream started.\\nExpires: ' + (data.expiresAt || 'unknown'));
         startExtendTimer();
       } catch (e) {
         let extra = '';
         if (chkDebug.checked && pc?.localDescription?.sdp) {
-          extra += '\n\nCurrent local SDP summary:\n' + summarizeSdp(pc.localDescription.sdp);
+          extra += '\\n\\nCurrent local SDP summary:\\n' + summarizeSdp(pc.localDescription.sdp);
         }
         if (chkDebug.checked && lastBackendData) {
-          extra += '\n\nLast backend data:\n' + JSON.stringify({
+          extra += '\\n\\nLast backend data:\\n' + JSON.stringify({
             offerSummary: lastBackendData.offerSummary || '',
             answerSummary: lastBackendData.answerSummary || '',
             mediaSessionId: lastBackendData.mediaSessionId || '',
             expiresAt: lastBackendData.expiresAt || ''
           }, null, 2);
         }
-        setStatus('Start failed:\n' + e.message + extra);
+        setStatus('Start failed:\\n' + e.message + extra);
       }
     }
 
@@ -854,7 +921,8 @@ class NestCameraViewer extends IPSModuleStrict
     document.getElementById('btnInfo').addEventListener('click', loadInfo);
     document.getElementById('btnStart').addEventListener('click', startStream);
     document.getElementById('btnStop').addEventListener('click', stopStream);
-    loadDevices().catch(err => setStatus('Failed to load cameras:\n' + err.message));
+
+    loadDevices().catch(err => setStatus('Failed to load cameras:\\n' + err.message));
   </script>
 </body>
 </html>
@@ -870,10 +938,20 @@ HTML;
     private function NormalizeHookName(string $hookName): string
     {
         $hookName = trim($hookName);
+
         if ($hookName === '') {
             $hookName = 'nestcam_' . $this->InstanceID;
         }
-        return ltrim($hookName, '/');
+
+        $hookName = strtolower($hookName);
+        $hookName = preg_replace('/[^a-z0-9_-]+/', '_', $hookName);
+        $hookName = trim((string) $hookName, '_');
+
+        if ($hookName === '') {
+            $hookName = 'nestcam_' . $this->InstanceID;
+        }
+
+        return $hookName;
     }
 
     private function SendJson(array $payload, int $httpCode = 200): void
@@ -882,4 +960,38 @@ HTML;
         http_response_code($httpCode);
         echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
+}
+public function RequestAction($Ident, $Value): void
+{
+    switch ($Ident) {
+        case 'RefreshDevices':
+            $this->RefreshDevices();
+            break;
+
+        case 'RebuildViewer':
+            $this->RebuildViewer();
+            break;
+
+        default:
+            throw new Exception('Invalid Ident');
+    }
+}
+function NESTCAM_RefreshDevices(int $InstanceID): void
+{
+    $instance = IPS_GetInstance($InstanceID);
+    if (($instance['ModuleInfo']['ModuleName'] ?? '') !== 'NestCameraViewer') {
+        throw new Exception('Instance is not a NestCameraViewer');
+    }
+
+    IPS_RequestAction($InstanceID, 'RefreshDevices', true);
+}
+
+function NESTCAM_RebuildViewer(int $InstanceID): void
+{
+    $instance = IPS_GetInstance($InstanceID);
+    if (($instance['ModuleInfo']['ModuleName'] ?? '') !== 'NestCameraViewer') {
+        throw new Exception('Instance is not a NestCameraViewer');
+    }
+
+    IPS_RequestAction($InstanceID, 'RebuildViewer', true);
 }
