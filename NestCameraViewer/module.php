@@ -36,7 +36,7 @@ class NestCameraViewer extends IPSModuleStrict
         parent::ApplyChanges();
 
         $hookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
-        $this->RegisterHook('/hook/' . $hookName);
+        $this->RegisterHook($hookName);
 
         $token = $this->GetToken();
         if ($token === '') {
