@@ -2,12 +2,13 @@
   "id": "{A3F4E3E9-5F8A-4C55-9D2D-7C6B9F421001}",
   "name": "NestCameraViewer",
   "type": 3,
-  "vendor": "AF",
+  "vendor": "Artur Fischer",
   "aliases": [
     "Google Nest Cameras"
   ],
+  "url": "https://github.com/fisart/GoogleNestCameras",
   "parentRequirements": [],
   "childRequirements": [],
   "implemented": [],
-  "prefix": "GNCAM"
+  "prefix": "NESTCAM"
 }
