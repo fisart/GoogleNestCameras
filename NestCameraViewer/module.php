@@ -619,66 +619,92 @@ class NestCameraViewer extends IPSModuleStrict
         return implode("\n", $out);
     }
 
-    private function RenderViewerHtml(): string
-    {
-        $hookPath = '/hook/' . $this->NormalizeHookName($this->ReadPropertyString('HookName'));
-        $showDebug = $this->ReadPropertyBoolean('Debug') ? 'true' : 'false';
-        $autoExtend = $this->ReadPropertyBoolean('AutoExtend') ? 'true' : 'false';
+private function RenderViewerHtml(): string
+{
+    $hookPath = '/hook/' . $this->NormalizeHookName($this->ReadPropertyString('HookName'));
+    $showDebug = $this->ReadPropertyBoolean('Debug') ? 'true' : 'false';
+    $autoExtend = $this->ReadPropertyBoolean('AutoExtend') ? 'true' : 'false';
+    $selectedDeviceName = $this->ReadPropertyString('SelectedDeviceName');
 
-        return <<<HTML
+    return <<<HTML
 <!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <title>Nest Camera Viewer</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 12px; background: #111; color: #eee; }
-    h2 { margin-top: 0; font-size: 20px; }
-    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
-    select, button, label { font-size: 14px; }
-    select, button { padding: 8px 12px; }
-    #status { margin: 10px 0 15px 0; white-space: pre-wrap; font-size: 13px; background: #1b1b1b; border: 1px solid #444; padding: 10px; max-height: 420px; overflow: auto; }
-    video { width: 100%; max-width: 960px; background: #000; border: 1px solid #444; margin-top: 10px; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+    #wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: #000;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+      display: block;
+    }
+    #debugBox {
+      display: none;
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      max-height: 35%;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-size: 12px;
+      color: #eee;
+      background: rgba(0,0,0,0.75);
+      border: 1px solid #444;
+      padding: 8px;
+      box-sizing: border-box;
+    }
   </style>
 </head>
 <body>
-  <h2>Nest Camera Viewer</h2>
-  <div class="toolbar">
-    <select id="cameraSelect"></select>
-    <button id="btnStart">Start</button>
-    <button id="btnStop">Stop</button>
-    <button id="btnInfo">Info</button>
-    <label><input type="checkbox" id="chkDebug"> Show Debug</label>
+  <div id="wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <div id="debugBox"></div>
   </div>
-  <div id="status">Loading cameras...</div>
-  <video id="video" autoplay playsinline muted></video>
+
   <script>
     const backendBaseUrl = '{$hookPath}';
     const initialDebug = {$showDebug};
     const autoExtendEnabled = {$autoExtend};
-    const statusEl = document.getElementById('status');
+    const selectedDeviceName = '{$selectedDeviceName}';
+
     const videoEl = document.getElementById('video');
-    const cameraSelect = document.getElementById('cameraSelect');
-    const chkDebug = document.getElementById('chkDebug');
-    chkDebug.checked = initialDebug;
+    const debugBox = document.getElementById('debugBox');
 
     let pc = null;
     let currentMediaSessionId = '';
-    let currentDeviceName = '';
     let extendTimer = null;
     let lastBackendData = null;
     let logLines = [];
 
-    function setStatus(msg) {
-      statusEl.textContent = msg;
-      console.log(msg);
-    }
+    function setDebug(msg) {
+      if (!initialDebug) {
+        return;
+      }
 
-    function appendStatus(msg, force = false) {
-      if (!chkDebug.checked && !force) return;
+      debugBox.style.display = 'block';
       logLines.push(msg);
-      if (!chkDebug.checked && logLines.length > 8) logLines.shift();
-      statusEl.textContent = logLines.join('\\n\\n');
+      if (logLines.length > 20) {
+        logLines.shift();
+      }
+      debugBox.textContent = logLines.join('\\n\\n');
       console.log(msg);
     }
 
@@ -699,15 +725,20 @@ class NestCameraViewer extends IPSModuleStrict
 
     function mungeNestAnswerSdp(answerSdp) {
       const sections = answerSdp.split(/\\r\\nm=/);
-      if (sections.length === 0) return answerSdp;
+      if (sections.length === 0) {
+        return answerSdp;
+      }
 
       const rebuilt = sections.map((section, index) => {
         let s = index === 0 ? section : 'm=' + section;
+
         const isAudio = s.includes('\\nm=audio') || s.startsWith('m=audio');
         const isVideo = s.includes('\\nm=video') || s.startsWith('m=video');
+
         if (isAudio || isVideo) {
           s = s.replace(/\\r?\\na=sendrecv(\\r?\\n)/g, '\\r\\na=sendonly$1');
         }
+
         return s;
       });
 
@@ -716,68 +747,66 @@ class NestCameraViewer extends IPSModuleStrict
 
     async function parseJsonResponse(res) {
       const text = await res.text();
+
       let data;
       try {
         data = JSON.parse(text);
       } catch (e) {
         throw new Error('Backend did not return JSON: ' + text);
       }
+
       if (!data.ok) {
         throw new Error(JSON.stringify(data, null, 2));
       }
+
       return data;
     }
 
-    async function callBackendGet(action, deviceName = '') {
+    async function callBackendGet(action) {
       let url = backendBaseUrl + '?action=' + encodeURIComponent(action);
-      if (deviceName) url += '&deviceName=' + encodeURIComponent(deviceName);
-      const res = await fetch(url, { method: 'GET', cache: 'no-store' });
+      if (selectedDeviceName) {
+        url += '&deviceName=' + encodeURIComponent(selectedDeviceName);
+      }
+
+      const res = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store'
+      });
+
       return await parseJsonResponse(res);
     }
 
     async function callBackendPost(payload) {
       const body = new URLSearchParams();
       Object.keys(payload).forEach((key) => body.append(key, payload[key]));
+
+      if (selectedDeviceName && !payload.deviceName) {
+        body.append('deviceName', selectedDeviceName);
+      }
+
       const res = await fetch(backendBaseUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
         body: body.toString()
       });
+
       return await parseJsonResponse(res);
-    }
-
-    async function loadDevices() {
-      const data = await callBackendGet('devices');
-      cameraSelect.innerHTML = '';
-      data.devices.forEach(device => {
-        const opt = document.createElement('option');
-        opt.value = device.name;
-        opt.textContent = device.label;
-        if (device.name === data.default) opt.selected = true;
-        cameraSelect.appendChild(opt);
-      });
-      currentDeviceName = cameraSelect.value;
-      setStatus('Ready.');
-    }
-
-    async function loadInfo() {
-      try {
-        const data = await callBackendGet('info', cameraSelect.value);
-        setStatus(JSON.stringify(data.device, null, 2));
-      } catch (e) {
-        setStatus('Info failed:\\n' + e.message);
-      }
     }
 
     async function waitForIceComplete(peer) {
       await new Promise((resolve) => {
-        if (peer.iceGatheringState === 'complete') { resolve(); return; }
+        if (peer.iceGatheringState === 'complete') {
+          resolve();
+          return;
+        }
+
         function checkState() {
           if (peer.iceGatheringState === 'complete') {
             peer.removeEventListener('icegatheringstatechange', checkState);
             resolve();
           }
         }
+
         peer.addEventListener('icegatheringstatechange', checkState);
       });
     }
@@ -790,19 +819,25 @@ class NestCameraViewer extends IPSModuleStrict
     }
 
     function startExtendTimer() {
-      if (!autoExtendEnabled) return;
+      if (!autoExtendEnabled) {
+        return;
+      }
+
       clearExtendTimer();
+
       extendTimer = setInterval(async () => {
-        if (!currentMediaSessionId || !currentDeviceName) return;
+        if (!currentMediaSessionId) {
+          return;
+        }
+
         try {
           const data = await callBackendPost({
             action: 'extend',
-            deviceName: currentDeviceName,
             mediaSessionId: currentMediaSessionId
           });
-          appendStatus('Extended stream. New expiry: ' + (data.expiresAt || 'unknown'));
+          setDebug('Extended stream. New expiry: ' + (data.expiresAt || 'unknown'));
         } catch (e) {
-          appendStatus('Auto-extend failed: ' + e.message);
+          setDebug('Auto-extend failed: ' + e.message);
         }
       }, 240000);
     }
@@ -811,11 +846,10 @@ class NestCameraViewer extends IPSModuleStrict
       try {
         clearExtendTimer();
 
-        if (currentMediaSessionId && currentDeviceName) {
+        if (currentMediaSessionId) {
           try {
             await callBackendPost({
               action: 'stop',
-              deviceName: currentDeviceName,
               mediaSessionId: currentMediaSessionId
             });
           } catch (e) {
@@ -826,39 +860,46 @@ class NestCameraViewer extends IPSModuleStrict
         lastBackendData = null;
 
         if (pc) {
-          try { pc.close(); } catch (e) {}
+          try {
+            pc.close();
+          } catch (e) {
+          }
           pc = null;
         }
 
         videoEl.pause();
         videoEl.srcObject = null;
-        setStatus('Stream stopped.');
       } catch (e) {
-        setStatus('Stop failed:\\n' + e.message);
+        setDebug('Stop failed: ' + e.message);
       }
     }
 
     async function startStream() {
       try {
         await stopStream();
-        logLines = [];
-        currentDeviceName = cameraSelect.value;
-        appendStatus('Creating peer connection...');
 
-        pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        setDebug('Creating peer connection...');
+
+        pc = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+
         pc.createDataChannel('nest');
 
-        if (chkDebug.checked) {
-          pc.onconnectionstatechange = () => appendStatus('connectionState: ' + pc.connectionState);
-          pc.oniceconnectionstatechange = () => appendStatus('iceConnectionState: ' + pc.iceConnectionState);
-          pc.onicegatheringstatechange = () => appendStatus('iceGatheringState: ' + pc.iceGatheringState);
-          pc.onsignalingstatechange = () => appendStatus('signalingState: ' + pc.signalingState);
+        if (initialDebug) {
+          pc.onconnectionstatechange = () => setDebug('connectionState: ' + pc.connectionState);
+          pc.oniceconnectionstatechange = () => setDebug('iceConnectionState: ' + pc.iceConnectionState);
+          pc.onicegatheringstatechange = () => setDebug('iceGatheringState: ' + pc.iceGatheringState);
+          pc.onsignalingstatechange = () => setDebug('signalingState: ' + pc.signalingState);
         }
 
         pc.ontrack = async (event) => {
-          appendStatus('Track received: ' + event.track.kind);
+          setDebug('Track received: ' + event.track.kind);
 
-          let stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
+          const stream = (event.streams && event.streams[0])
+            ? event.streams[0]
+            : new MediaStream([event.track]);
+
           videoEl.srcObject = stream;
           videoEl.muted = true;
           videoEl.autoplay = true;
@@ -867,68 +908,110 @@ class NestCameraViewer extends IPSModuleStrict
           event.track.onunmute = async () => {
             try {
               await videoEl.play();
-              appendStatus('Playback active. Resolution: ' + videoEl.videoWidth + 'x' + videoEl.videoHeight);
+              setDebug('Playback active. Resolution: ' + videoEl.videoWidth + 'x' + videoEl.videoHeight);
             } catch (err) {
-              appendStatus('video.play() failed: ' + err.message);
+              setDebug('video.play() failed: ' + err.message);
             }
           };
         };
 
-        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        });
+
         await pc.setLocalDescription(offer);
         await waitForIceComplete(pc);
 
         let offerSdp = pc.localDescription?.sdp || '';
-        if (!offerSdp) throw new Error('Local offer SDP is empty.');
-        if (!offerSdp.endsWith('\\n')) offerSdp += '\\n';
+        if (!offerSdp) {
+          throw new Error('Local offer SDP is empty.');
+        }
+
+        if (!offerSdp.endsWith('\\n')) {
+          offerSdp += '\\n';
+        }
 
         const data = await callBackendPost({
           action: 'generate',
-          deviceName: currentDeviceName,
           offerSdp: offerSdp
         });
 
         lastBackendData = data;
         currentMediaSessionId = data.mediaSessionId || '';
+
         const mungedAnswerSdp = mungeNestAnswerSdp(data.answerSdp);
 
-        if (chkDebug.checked) {
-          appendStatus('Offer summary:\\n' + (data.offerSummary || summarizeSdp(offerSdp)));
-          appendStatus('Original answer summary:\\n' + (data.answerSummary || '(none)'));
-          appendStatus('Munged answer summary:\\n' + summarizeSdp(mungedAnswerSdp));
+        if (initialDebug) {
+          setDebug('Offer summary:\\n' + (data.offerSummary || summarizeSdp(offerSdp)));
+          setDebug('Original answer summary:\\n' + (data.answerSummary || '(none)'));
+          setDebug('Munged answer summary:\\n' + summarizeSdp(mungedAnswerSdp));
         }
 
-        await pc.setRemoteDescription({ type: 'answer', sdp: mungedAnswerSdp });
-        setStatus('Stream started.\\nExpires: ' + (data.expiresAt || 'unknown'));
+        await pc.setRemoteDescription({
+          type: 'answer',
+          sdp: mungedAnswerSdp
+        });
+
         startExtendTimer();
       } catch (e) {
-        let extra = '';
-        if (chkDebug.checked && pc?.localDescription?.sdp) {
-          extra += '\\n\\nCurrent local SDP summary:\\n' + summarizeSdp(pc.localDescription.sdp);
+        if (initialDebug) {
+          let extra = '';
+          if (pc?.localDescription?.sdp) {
+            extra += '\\n\\nCurrent local SDP summary:\\n' + summarizeSdp(pc.localDescription.sdp);
+          }
+          if (lastBackendData) {
+            extra += '\\n\\nLast backend data:\\n' + JSON.stringify({
+              offerSummary: lastBackendData.offerSummary || '',
+              answerSummary: lastBackendData.answerSummary || '',
+              mediaSessionId: lastBackendData.mediaSessionId || '',
+              expiresAt: lastBackendData.expiresAt || ''
+            }, null, 2);
+          }
+          setDebug('Start failed: ' + e.message + extra);
         }
-        if (chkDebug.checked && lastBackendData) {
-          extra += '\\n\\nLast backend data:\\n' + JSON.stringify({
-            offerSummary: lastBackendData.offerSummary || '',
-            answerSummary: lastBackendData.answerSummary || '',
-            mediaSessionId: lastBackendData.mediaSessionId || '',
-            expiresAt: lastBackendData.expiresAt || ''
-          }, null, 2);
-        }
-        setStatus('Start failed:\\n' + e.message + extra);
       }
     }
 
-    cameraSelect.addEventListener('change', () => { currentDeviceName = cameraSelect.value; });
-    document.getElementById('btnInfo').addEventListener('click', loadInfo);
-    document.getElementById('btnStart').addEventListener('click', startStream);
-    document.getElementById('btnStop').addEventListener('click', stopStream);
-
-    loadDevices().catch(err => setStatus('Failed to load cameras:\\n' + err.message));
+    startStream();
   </script>
 </body>
 </html>
 HTML;
     }
+
+    private function BuildPlaceholderHtml(string $message): string
+    {
+        $safe = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
+        return '<div style="font-family:Arial,sans-serif;padding:12px;background:#111;color:#eee;border:1px solid #444;">' . $safe . '</div>';
+    }
+
+    private function NormalizeHookName(string $hookName): string
+    {
+        $hookName = trim($hookName);
+
+        if ($hookName === '') {
+            $hookName = 'nestcam_' . $this->InstanceID;
+        }
+
+        $hookName = strtolower($hookName);
+        $hookName = preg_replace('/[^a-z0-9_-]+/', '_', $hookName);
+        $hookName = trim((string) $hookName, '_');
+
+        if ($hookName === '') {
+            $hookName = 'nestcam_' . $this->InstanceID;
+        }
+
+        return $hookName;
+    }
+
+    private function SendJson(array $payload, int $httpCode = 200): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code($httpCode);
+        echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+}
 
     private function BuildPlaceholderHtml(string $message): string
     {
