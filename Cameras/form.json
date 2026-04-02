@@ -1,0 +1,41 @@
+{
+  "elements": [
+    {
+      "type": "Label",
+      "caption": "The live camera list is loaded dynamically from Google SDM in GetConfigurationForm()."
+    }
+  ],
+  "actions": [
+    {
+      "type": "Label",
+      "caption": "Open the ViewerHTML variable in WebFront, or use the hook URL shown in the form."
+    }
+  ],
+  "status": [
+    {
+      "code": 101,
+      "icon": "active",
+      "caption": "Creating instance"
+    },
+    {
+      "code": 102,
+      "icon": "active",
+      "caption": "Active"
+    },
+    {
+      "code": 200,
+      "icon": "error",
+      "caption": "Token variable is missing or empty"
+    },
+    {
+      "code": 201,
+      "icon": "error",
+      "caption": "No compatible WEB_RTC cameras found"
+    },
+    {
+      "code": 202,
+      "icon": "error",
+      "caption": "Google SDM request failed"
+    }
+  ]
+}

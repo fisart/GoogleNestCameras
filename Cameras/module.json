@@ -1,0 +1,13 @@
+{
+  "id": "{A3F4E3E9-5F8A-4C55-9D2D-7C6B9F421001}",
+  "name": "GoogleNestCameras",
+  "type": 3,
+  "vendor": "AF",
+  "aliases": [
+    "Google Nest Cameras"
+  ],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "GNCAM"
+}

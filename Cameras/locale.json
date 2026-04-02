@@ -1,0 +1,30 @@
+{
+  "translations": {
+    "de": {
+      "Nest Camera Viewer": "Google Nest Kameras",
+      "The live camera list is loaded dynamically from Google SDM in GetConfigurationForm().": "Die Live-Kameraliste wird dynamisch aus Google SDM in GetConfigurationForm() geladen.",
+      "Open the ViewerHTML variable in WebFront, or use the hook URL shown in the form.": "Öffnen Sie die Variable ViewerHTML im WebFront oder verwenden Sie die im Formular angezeigte Hook-URL.",
+      "Creating instance": "Instanz wird erstellt",
+      "Active": "Aktiv",
+      "Token variable is missing or empty": "Token-Variable fehlt oder ist leer",
+      "No compatible WEB_RTC cameras found": "Keine kompatiblen WEB_RTC-Kameras gefunden",
+      "Google SDM request failed": "Google-SDM-Anfrage fehlgeschlagen",
+      "Token Variable": "Token-Variable",
+      "Hook Name": "Hook-Name",
+      "Camera": "Kamera",
+      "Auto Extend Stream": "Stream automatisch verlängern",
+      "Show Debug in Viewer": "Debug im Viewer anzeigen",
+      "Hook URL: ": "Hook-URL: ",
+      "Refresh device list": "Geräteliste aktualisieren",
+      "Rebuild viewer HTML": "Viewer-HTML neu erzeugen",
+      "Viewer": "Viewer",
+      "Stream Status": "Stream-Status",
+      "Selected Camera": "Ausgewählte Kamera",
+      "Expires At": "Läuft ab am",
+      "Ready": "Bereit",
+      "Stream started": "Stream gestartet",
+      "Stream stopped": "Stream gestoppt",
+      "Google SDM request failed": "Google-SDM-Anfrage fehlgeschlagen"
+    }
+  }
+}
