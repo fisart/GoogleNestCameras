@@ -255,6 +255,30 @@ class NestCameraViewer extends IPSModuleStrict
             return;
         }
 
+        if (!$this->IsWebhookAuthenticated()) {
+            header('Location: ' . $this->GetWebhookLoginUrl());
+            exit;
+        }
+    }
+
+    private function GetWebhookLoginUrl(): string
+    {
+        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
+        if ($vaultID <= 0) {
+            throw new Exception('VaultInstanceID is not configured');
+        }
+
+        $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
+        return '/hook/secrets_' . $vaultID . '?portal=1&return=' . urlencode($currentUrl);
+    }
+
+    private function IsWebhookAuthenticated(): bool
+    {
+        $authMode = $this->ReadPropertyInteger('AuthMode');
+        if ($authMode === 0) {
+            return true;
+        }
+
         $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
         if ($vaultID <= 0) {
             throw new Exception('VaultInstanceID is not configured');
@@ -264,14 +288,8 @@ class NestCameraViewer extends IPSModuleStrict
             throw new Exception('SecretsManager functions are not available');
         }
 
-        if (!SEC_IsPortalAuthenticated($vaultID)) {
-            $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
-            $loginUrl = '/hook/secrets_' . $vaultID . '?portal=1&return=' . urlencode($currentUrl);
-            header('Location: ' . $loginUrl);
-            exit;
-        }
+        return SEC_IsPortalAuthenticated($vaultID);
     }
-
 
     protected function ProcessHookData(): void
     {
@@ -303,7 +321,22 @@ class NestCameraViewer extends IPSModuleStrict
                         'message'    => 'Backend reached'
                     ]);
                     return;
+                case 'authcheck':
+                    $authMode = $this->ReadPropertyInteger('AuthMode');
+                    if ($authMode === 0) {
+                        $this->SendJson([
+                            'ok'            => true,
+                            'authenticated' => true
+                        ]);
+                        return;
+                    }
 
+                    $this->SendJson([
+                        'ok'            => true,
+                        'authenticated' => $this->IsWebhookAuthenticated(),
+                        'loginUrl'      => $this->GetWebhookLoginUrl()
+                    ]);
+                    return;
                 case 'devices':
                     $devices = $this->GetCachedDevices();
                     $items = [];
@@ -832,7 +865,8 @@ class NestCameraViewer extends IPSModuleStrict
 
       const res = await fetch(url, {
         method: 'GET',
-        cache: 'no-store'
+        cache: 'no-store',
+        credentials: 'same-origin'
       });
 
       return await parseJsonResponse(res);
@@ -849,10 +883,20 @@ class NestCameraViewer extends IPSModuleStrict
       const res = await fetch(backendBaseUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: body.toString()
+        body: body.toString(),
+        credentials: 'same-origin'
       });
 
       return await parseJsonResponse(res);
+    }
+
+    async function ensureAuthenticated() {
+      const data = await callBackendGet('authcheck');
+      if (!data.authenticated) {
+        window.location.href = data.loginUrl;
+        return false;
+      }
+      return true;
     }
 
     async function waitForIceComplete(peer) {
@@ -938,6 +982,11 @@ class NestCameraViewer extends IPSModuleStrict
 
     async function startStream() {
       try {
+        const ok = await ensureAuthenticated();
+        if (!ok) {
+          return;
+        }
+
         await stopStream();
 
         setDebug('Creating peer connection...');
