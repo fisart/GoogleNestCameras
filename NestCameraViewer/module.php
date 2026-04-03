@@ -822,7 +822,7 @@ class NestCameraViewer extends IPSModuleStrict
         $devices = $this->GetCachedDevices();
         $allMode = ($selectedDeviceName === '__ALL__');
         $cameraLinksHtml = '';
-
+        $allModeDisplay = $allMode ? 'block' : 'none';
         if ($allMode) {
             $hookDeviceMap = json_decode($this->ReadAttributeString('HookDeviceMapJson'), true);
             if (is_array($hookDeviceMap)) {
@@ -886,13 +886,13 @@ class NestCameraViewer extends IPSModuleStrict
   </style>
 </head>
 <body>
-  <div id="wrap">
-    <div id="allModeLinks" style="display: {$allMode ? 'block' : 'none'}; padding: 12px; color:#eee;">
-      {$cameraLinksHtml}
-    </div>
-    <video id="video" autoplay playsinline muted></video>
-    <div id="debugBox"></div>
+<div id="wrap">
+  <div id="allModeLinks" style="display: {$allModeDisplay}; padding: 12px; color:#eee;">
+    {$cameraLinksHtml}
   </div>
+  <video id="video" autoplay playsinline muted></video>
+  <div id="debugBox"></div>
+</div>
 
   <script>
     const backendBaseUrl = '{$hookPath}';
