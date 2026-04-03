@@ -18,6 +18,8 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterPropertyString('EnterpriseID', 'f779e361-a2e1-43ef-8ffd-dfd46d3e69ab');
         $this->RegisterPropertyString('SelectedDeviceName', '');
         $this->RegisterPropertyString('HookName', 'nestcam');
+        $this->RegisterPropertyInteger('AuthMode', 0);
+        $this->RegisterPropertyInteger('VaultInstanceID', 0);
         $this->RegisterPropertyBoolean('AutoExtend', true);
         $this->RegisterPropertyBoolean('Debug', false);
 
@@ -25,14 +27,13 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterAttributeString('LastOfferSummary', '');
         $this->RegisterAttributeString('LastAnswerSummary', '');
         $this->RegisterAttributeString('RegisteredHookName', '');
+        $this->RegisterAttributeString('RegisteredCameraHooksJson', '[]');
+        $this->RegisterAttributeString('HookDeviceMapJson', '{}');
 
         $this->RegisterVariableString('ViewerHTML', 'Viewer', '~HTMLBox', 10);
         $this->RegisterVariableString('StreamStatus', 'Stream Status', '', 20);
         $this->RegisterVariableString('SelectedCameraLabel', 'Selected Camera', '', 30);
         $this->RegisterVariableString('ExpiresAt', 'Expires At', '', 40);
-
-        $this->RegisterPropertyInteger('AuthMode', 0);
-        $this->RegisterPropertyInteger('VaultInstanceID', 0);
     }
 
     public function ApplyChanges(): void
@@ -51,6 +52,8 @@ class NestCameraViewer extends IPSModuleStrict
             $this->WriteAttributeString('RegisteredHookName', $hookName);
         }
 
+        $this->UnregisterGeneratedCameraHooks();
+
         $token = $this->GetToken();
         if ($token === '') {
             $this->SetStatus(self::STATUS_TOKEN_ERROR);
@@ -58,9 +61,9 @@ class NestCameraViewer extends IPSModuleStrict
             $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('Token variable missing or empty'));
             return;
         }
+
         $authMode = $this->ReadPropertyInteger('AuthMode');
         $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
-
         if ($authMode > 0 && $vaultID <= 0) {
             $this->SetStatus(self::STATUS_GOOGLE_ERROR);
             $this->SetValue('StreamStatus', 'Vault instance missing');
@@ -83,8 +86,17 @@ class NestCameraViewer extends IPSModuleStrict
             return;
         }
 
+        if ($this->ReadPropertyString('SelectedDeviceName') === '__ALL__') {
+            $this->RegisterGeneratedCameraHooks($devices);
+        }
+
         $selected = $this->ResolveSelectedDeviceName($devices);
-        $this->SetValue('SelectedCameraLabel', $devices[$selected]['label']);
+        if ($selected === '__ALL__') {
+            $this->SetValue('SelectedCameraLabel', 'All');
+        } else {
+            $this->SetValue('SelectedCameraLabel', $devices[$selected]['label']);
+        }
+
         $this->SetValue('StreamStatus', 'Ready');
         $this->SetValue('ViewerHTML', $this->RenderViewerHtml());
         $this->SetStatus(self::STATUS_ACTIVE);
@@ -114,6 +126,10 @@ class NestCameraViewer extends IPSModuleStrict
             [
                 'caption' => '',
                 'value'   => ''
+            ],
+            [
+                'caption' => 'All',
+                'value'   => '__ALL__'
             ]
         ];
 
@@ -236,8 +252,15 @@ class NestCameraViewer extends IPSModuleStrict
             return;
         }
 
-        $selected = $this->ResolveSelectedDeviceName($devices);
-        $this->SetValue('SelectedCameraLabel', $devices[$selected]['label']);
+        if ($this->ReadPropertyString('SelectedDeviceName') === '__ALL__') {
+            $this->UnregisterGeneratedCameraHooks();
+            $this->RegisterGeneratedCameraHooks($devices);
+            $this->SetValue('SelectedCameraLabel', 'All');
+        } else {
+            $selected = $this->ResolveSelectedDeviceName($devices);
+            $this->SetValue('SelectedCameraLabel', $devices[$selected]['label']);
+        }
+
         $this->SetStatus(self::STATUS_ACTIVE);
         echo 'Found ' . count($devices) . ' compatible camera(s)';
     }
@@ -248,57 +271,33 @@ class NestCameraViewer extends IPSModuleStrict
         echo 'Viewer rebuilt';
     }
 
-    private function EnforceWebhookAuth(): void
-    {
-        $authMode = $this->ReadPropertyInteger('AuthMode');
-        if ($authMode === 0) {
-            return;
-        }
-
-        if (!$this->IsWebhookAuthenticated()) {
-            header('Location: ' . $this->GetWebhookLoginUrl());
-            exit;
-        }
-    }
-
-    private function GetWebhookLoginUrl(): string
-    {
-        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
-        if ($vaultID <= 0) {
-            throw new Exception('VaultInstanceID is not configured');
-        }
-
-        $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
-        return '/hook/secrets_' . $vaultID . '?portal=1&return=' . urlencode($currentUrl);
-    }
-
-    private function IsWebhookAuthenticated(): bool
-    {
-        $authMode = $this->ReadPropertyInteger('AuthMode');
-        if ($authMode === 0) {
-            return true;
-        }
-
-        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
-        if ($vaultID <= 0) {
-            throw new Exception('VaultInstanceID is not configured');
-        }
-
-        if (!function_exists('SEC_IsPortalAuthenticated')) {
-            throw new Exception('SecretsManager functions are not available');
-        }
-
-        return SEC_IsPortalAuthenticated($vaultID);
-    }
-
     protected function ProcessHookData(): void
     {
         $uri = $_SERVER['REQUEST_URI'] ?? '';
         $path = parse_url($uri, PHP_URL_PATH);
-        $hookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
-        $hookPath = '/hook/' . $hookName;
+        $path = is_string($path) ? $path : '';
 
-        if ($path !== $hookPath) {
+        $baseHookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
+        $allowedHooks = [$baseHookName];
+
+        $generatedHooks = json_decode($this->ReadAttributeString('RegisteredCameraHooksJson'), true);
+        if (is_array($generatedHooks)) {
+            foreach ($generatedHooks as $generatedHook) {
+                if (is_string($generatedHook) && $generatedHook !== '') {
+                    $allowedHooks[] = $generatedHook;
+                }
+            }
+        }
+
+        $matched = false;
+        foreach ($allowedHooks as $allowedHook) {
+            if ($path === '/hook/' . $allowedHook) {
+                $matched = true;
+                break;
+            }
+        }
+
+        if (!$matched) {
             http_response_code(404);
             echo 'Not found';
             return;
@@ -321,6 +320,7 @@ class NestCameraViewer extends IPSModuleStrict
                         'message'    => 'Backend reached'
                     ]);
                     return;
+
                 case 'authcheck':
                     $authMode = $this->ReadPropertyInteger('AuthMode');
                     if ($authMode === 0) {
@@ -337,6 +337,7 @@ class NestCameraViewer extends IPSModuleStrict
                         'loginUrl'      => $this->GetWebhookLoginUrl()
                     ]);
                     return;
+
                 case 'devices':
                     $devices = $this->GetCachedDevices();
                     $items = [];
@@ -355,6 +356,7 @@ class NestCameraViewer extends IPSModuleStrict
                     return;
 
                 case 'info':
+                    $this->RequireWebhookAuthForApi();
                     $deviceName = $this->ResolveRequestDeviceName();
                     $url = 'https://smartdevicemanagement.googleapis.com/v1/' . $deviceName;
                     $result = $this->GoogleRequest($url, 'GET');
@@ -376,6 +378,7 @@ class NestCameraViewer extends IPSModuleStrict
                     return;
 
                 case 'generate':
+                    $this->RequireWebhookAuthForApi();
                     $deviceName = $this->ResolveRequestDeviceName();
                     $offerSdp = $this->ReadPostedOfferSdp();
 
@@ -431,6 +434,7 @@ class NestCameraViewer extends IPSModuleStrict
                     return;
 
                 case 'extend':
+                    $this->RequireWebhookAuthForApi();
                     $deviceName = $this->ResolveRequestDeviceName();
                     $mediaSessionId = $_POST['mediaSessionId'] ?? '';
 
@@ -469,6 +473,7 @@ class NestCameraViewer extends IPSModuleStrict
                     return;
 
                 case 'stop':
+                    $this->RequireWebhookAuthForApi();
                     $deviceName = $this->ResolveRequestDeviceName();
                     $mediaSessionId = $_POST['mediaSessionId'] ?? '';
 
@@ -598,6 +603,11 @@ class NestCameraViewer extends IPSModuleStrict
     private function ResolveSelectedDeviceName(array $devices): string
     {
         $selected = $this->ReadPropertyString('SelectedDeviceName');
+
+        if ($selected === '__ALL__') {
+            return '__ALL__';
+        }
+
         if ($selected !== '' && isset($devices[$selected])) {
             return $selected;
         }
@@ -608,13 +618,34 @@ class NestCameraViewer extends IPSModuleStrict
     private function ResolveRequestDeviceName(): string
     {
         $devices = $this->GetCachedDevices();
-        $requested = $_POST['deviceName'] ?? $_GET['deviceName'] ?? '';
 
+        $requested = $_POST['deviceName'] ?? $_GET['deviceName'] ?? '';
         if ($requested !== '' && isset($devices[$requested])) {
             return $requested;
         }
 
-        return $this->ResolveSelectedDeviceName($devices);
+        $uri = $_SERVER['REQUEST_URI'] ?? '';
+        $path = parse_url($uri, PHP_URL_PATH);
+        $path = is_string($path) ? $path : '';
+
+        if (preg_match('#^/hook/([^/?]+)$#', $path, $m)) {
+            $calledHookName = (string) $m[1];
+            $hookDeviceMap = json_decode($this->ReadAttributeString('HookDeviceMapJson'), true);
+
+            if (is_array($hookDeviceMap) && isset($hookDeviceMap[$calledHookName])) {
+                $mappedDevice = (string) $hookDeviceMap[$calledHookName];
+                if (isset($devices[$mappedDevice])) {
+                    return $mappedDevice;
+                }
+            }
+        }
+
+        $selected = $this->ResolveSelectedDeviceName($devices);
+        if ($selected === '__ALL__') {
+            return (string) array_key_first($devices);
+        }
+
+        return $selected;
     }
 
     private function DetectEnterpriseId(): string
@@ -714,12 +745,98 @@ class NestCameraViewer extends IPSModuleStrict
         return implode("\n", $out);
     }
 
+    private function GetWebhookLoginUrl(): string
+    {
+        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
+        if ($vaultID <= 0) {
+            throw new Exception('VaultInstanceID is not configured');
+        }
+
+        $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
+        return '/hook/secrets_' . $vaultID . '?portal=1&return=' . urlencode($currentUrl);
+    }
+
+    private function IsWebhookAuthenticated(): bool
+    {
+        $authMode = $this->ReadPropertyInteger('AuthMode');
+        if ($authMode === 0) {
+            return true;
+        }
+
+        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
+        if ($vaultID <= 0) {
+            throw new Exception('VaultInstanceID is not configured');
+        }
+
+        if (!function_exists('SEC_IsPortalAuthenticated')) {
+            throw new Exception('SecretsManager functions are not available');
+        }
+
+        return SEC_IsPortalAuthenticated($vaultID);
+    }
+
+    private function EnforceWebhookAuth(): void
+    {
+        $authMode = $this->ReadPropertyInteger('AuthMode');
+        if ($authMode === 0) {
+            return;
+        }
+
+        if (!$this->IsWebhookAuthenticated()) {
+            header('Location: ' . $this->GetWebhookLoginUrl());
+            exit;
+        }
+    }
+
+    private function RequireWebhookAuthForApi(): void
+    {
+        $authMode = $this->ReadPropertyInteger('AuthMode');
+        if ($authMode === 0) {
+            return;
+        }
+
+        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
+        if ($vaultID <= 0) {
+            throw new Exception('VaultInstanceID is not configured');
+        }
+
+        if (!function_exists('SEC_IsPortalAuthenticated')) {
+            throw new Exception('SecretsManager functions are not available');
+        }
+
+        if (!SEC_IsPortalAuthenticated($vaultID)) {
+            $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
+            $loginUrl = '/hook/secrets_' . $vaultID . '?portal=1&return=' . urlencode($currentUrl);
+            header('Location: ' . $loginUrl);
+            exit;
+        }
+    }
+
     private function RenderViewerHtml(): string
     {
         $hookPath = '/hook/' . $this->NormalizeHookName($this->ReadPropertyString('HookName'));
         $showDebug = $this->ReadPropertyBoolean('Debug') ? 'true' : 'false';
         $autoExtend = $this->ReadPropertyBoolean('AutoExtend') ? 'true' : 'false';
         $selectedDeviceName = $this->ReadPropertyString('SelectedDeviceName');
+
+        $devices = $this->GetCachedDevices();
+        $allMode = ($selectedDeviceName === '__ALL__');
+        $cameraLinksHtml = '';
+
+        if ($allMode) {
+            $hookDeviceMap = json_decode($this->ReadAttributeString('HookDeviceMapJson'), true);
+            if (is_array($hookDeviceMap)) {
+                $links = [];
+                foreach ($hookDeviceMap as $hook => $deviceName) {
+                    $label = $devices[$deviceName]['label'] ?? $hook;
+                    $url = '/hook/' . $hook;
+                    $links[] = '<div><a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" target="_blank" style="color:#9cf;text-decoration:none;">' .
+                        htmlspecialchars((string) $label, ENT_QUOTES, 'UTF-8') .
+                        '</a></div>';
+                }
+                $cameraLinksHtml = implode('', $links);
+            }
+        }
 
         return <<<HTML
 <!doctype html>
@@ -770,6 +887,9 @@ class NestCameraViewer extends IPSModuleStrict
 </head>
 <body>
   <div id="wrap">
+    <div id="allModeLinks" style="display: {$allMode ? 'block' : 'none'}; padding: 12px; color: #eee;">
+      {$cameraLinksHtml}
+    </div>
     <video id="video" autoplay playsinline muted></video>
     <div id="debugBox"></div>
   </div>
@@ -779,6 +899,7 @@ class NestCameraViewer extends IPSModuleStrict
     const initialDebug = {$showDebug};
     const autoExtendEnabled = {$autoExtend};
     const selectedDeviceName = '{$selectedDeviceName}';
+    const allMode = selectedDeviceName === '__ALL__';
 
     const videoEl = document.getElementById('video');
     const debugBox = document.getElementById('debugBox');
@@ -859,7 +980,7 @@ class NestCameraViewer extends IPSModuleStrict
 
     async function callBackendGet(action) {
       let url = backendBaseUrl + '?action=' + encodeURIComponent(action);
-      if (selectedDeviceName) {
+      if (selectedDeviceName && !allMode) {
         url += '&deviceName=' + encodeURIComponent(selectedDeviceName);
       }
 
@@ -876,7 +997,7 @@ class NestCameraViewer extends IPSModuleStrict
       const body = new URLSearchParams();
       Object.keys(payload).forEach((key) => body.append(key, payload[key]));
 
-      if (selectedDeviceName && !payload.deviceName) {
+      if (selectedDeviceName && !payload.deviceName && !allMode) {
         body.append('deviceName', selectedDeviceName);
       }
 
@@ -982,6 +1103,10 @@ class NestCameraViewer extends IPSModuleStrict
 
     async function startStream() {
       try {
+        if (allMode) {
+          return;
+        }
+
         const ok = await ensureAuthenticated();
         if (!ok) {
           return;
@@ -1114,6 +1239,59 @@ HTML;
         }
 
         return $hookName;
+    }
+
+    private function NormalizeCameraHookName(string $label): string
+    {
+        $name = trim($label);
+        $name = strtolower($name);
+        $name = preg_replace('/[^a-z0-9_-]+/', '_', $name);
+        $name = trim((string) $name, '_');
+
+        if ($name === '') {
+            $name = 'camera_' . md5($label);
+        }
+
+        return $name;
+    }
+
+    private function UnregisterGeneratedCameraHooks(): void
+    {
+        $registered = json_decode($this->ReadAttributeString('RegisteredCameraHooksJson'), true);
+        if (!is_array($registered)) {
+            $registered = [];
+        }
+
+        foreach ($registered as $hookName) {
+            if (is_string($hookName) && $hookName !== '') {
+                $this->UnregisterHook($hookName);
+            }
+        }
+
+        $this->WriteAttributeString('RegisteredCameraHooksJson', '[]');
+        $this->WriteAttributeString('HookDeviceMapJson', '{}');
+    }
+
+    private function RegisterGeneratedCameraHooks(array $devices): void
+    {
+        $registeredHooks = [];
+        $hookDeviceMap = [];
+
+        foreach ($devices as $deviceName => $device) {
+            $label = (string) ($device['label'] ?? '');
+            if ($label === '') {
+                continue;
+            }
+
+            $hookName = $this->NormalizeCameraHookName($label);
+            $this->RegisterHook($hookName);
+
+            $registeredHooks[] = $hookName;
+            $hookDeviceMap[$hookName] = $deviceName;
+        }
+
+        $this->WriteAttributeString('RegisteredCameraHooksJson', json_encode($registeredHooks));
+        $this->WriteAttributeString('HookDeviceMapJson', json_encode($hookDeviceMap));
     }
 
     private function SendJson(array $payload, int $httpCode = 200): void
