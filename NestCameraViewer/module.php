@@ -264,13 +264,11 @@ class NestCameraViewer extends IPSModuleStrict
             throw new Exception('SecretsManager functions are not available');
         }
 
-        if (isset($_IPS['SENDER']) && $_IPS['SENDER'] === 'WebHook') {
-            if (!SEC_IsPortalAuthenticated($vaultID)) {
-                $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
-                $loginUrl = '/hook/secrets_' . $vaultID . '?portal=1&return=' . urlencode($currentUrl);
-                header('Location: ' . $loginUrl);
-                exit;
-            }
+        if (!SEC_IsPortalAuthenticated($vaultID)) {
+            $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
+            $loginUrl = '/hook/secrets_' . $vaultID . '?portal=1&return=' . urlencode($currentUrl);
+            header('Location: ' . $loginUrl);
+            exit;
         }
     }
 
