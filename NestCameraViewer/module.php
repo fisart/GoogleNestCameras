@@ -291,19 +291,20 @@ class NestCameraViewer extends IPSModuleStrict
         $action = $_GET['action'] ?? $_POST['action'] ?? 'page';
 
         try {
-case 'page':
-    $this->EnforceWebhookAuth();
-    header('Content-Type: text/html; charset=utf-8');
-    echo $this->RenderViewerHtml();
-    return;
+            switch ($action) {
+                case 'page':
+                    $this->EnforceWebhookAuth();
+                    header('Content-Type: text/html; charset=utf-8');
+                    echo $this->RenderViewerHtml();
+                    return;
 
-case 'ping':
-    $this->SendJson([
-        'ok'         => true,
-        'instanceID' => $this->InstanceID,
-        'message'    => 'Backend reached'
-    ]);
-    return;
+                case 'ping':
+                    $this->SendJson([
+                        'ok'         => true,
+                        'instanceID' => $this->InstanceID,
+                        'message'    => 'Backend reached'
+                    ]);
+                    return;
 
                 case 'devices':
                     $devices = $this->GetCachedDevices();
