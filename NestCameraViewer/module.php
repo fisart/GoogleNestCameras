@@ -887,7 +887,7 @@ class NestCameraViewer extends IPSModuleStrict
 </head>
 <body>
   <div id="wrap">
-    <div id="allModeLinks" style="display: {$allMode ? 'block' : 'none'}; padding: 12px; color: #eee;">
+    <div id="allModeLinks" style="display: {$allMode ? 'block' : 'none'}; padding: 12px; color:#eee;">
       {$cameraLinksHtml}
     </div>
     <video id="video" autoplay playsinline muted></video>
