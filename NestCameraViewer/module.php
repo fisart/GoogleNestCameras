@@ -812,30 +812,47 @@ class NestCameraViewer extends IPSModuleStrict
         }
     }
 
-    private function RenderViewerHtml(): string
+    private function RenderViewerHtml(?string $forcedDeviceName = null): string
     {
-        $hookPath = '/hook/' . $this->NormalizeHookName($this->ReadPropertyString('HookName'));
+        $uri = $_SERVER['REQUEST_URI'] ?? '';
+        $path = parse_url($uri, PHP_URL_PATH);
+        $path = is_string($path) ? $path : '';
+
+        $baseHookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
+        $hookPath = '/hook/' . $baseHookName;
         $showDebug = $this->ReadPropertyBoolean('Debug') ? 'true' : 'false';
         $autoExtend = $this->ReadPropertyBoolean('AutoExtend') ? 'true' : 'false';
-        $selectedDeviceName = $this->ReadPropertyString('SelectedDeviceName');
 
         $devices = $this->GetCachedDevices();
+        $selectedDeviceName = $forcedDeviceName ?? $this->ReadPropertyString('SelectedDeviceName');
+
+        $hookDeviceMap = json_decode($this->ReadAttributeString('HookDeviceMapJson'), true);
+        if (!is_array($hookDeviceMap)) {
+            $hookDeviceMap = [];
+        }
+
+        if ($forcedDeviceName === null && preg_match('#^/hook/([^/?]+)$#', $path, $m)) {
+            $calledHookName = (string) $m[1];
+            if (isset($hookDeviceMap[$calledHookName])) {
+                $selectedDeviceName = (string) $hookDeviceMap[$calledHookName];
+                $hookPath = '/hook/' . $calledHookName;
+            }
+        }
+
         $allMode = ($selectedDeviceName === '__ALL__');
         $cameraLinksHtml = '';
         $allModeDisplay = $allMode ? 'block' : 'none';
+
         if ($allMode) {
-            $hookDeviceMap = json_decode($this->ReadAttributeString('HookDeviceMapJson'), true);
-            if (is_array($hookDeviceMap)) {
-                $links = [];
-                foreach ($hookDeviceMap as $hook => $deviceName) {
-                    $label = $devices[$deviceName]['label'] ?? $hook;
-                    $url = '/hook/' . $hook;
-                    $links[] = '<div><a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" target="_blank" style="color:#9cf;text-decoration:none;">' .
-                        htmlspecialchars((string) $label, ENT_QUOTES, 'UTF-8') .
-                        '</a></div>';
-                }
-                $cameraLinksHtml = implode('', $links);
+            $links = [];
+            foreach ($hookDeviceMap as $hook => $deviceName) {
+                $label = $devices[$deviceName]['label'] ?? $hook;
+                $url = '/hook/' . $hook;
+                $links[] = '<div><a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '" target="_blank" style="color:#9cf;text-decoration:none;">' .
+                    htmlspecialchars((string) $label, ENT_QUOTES, 'UTF-8') .
+                    '</a></div>';
             }
+            $cameraLinksHtml = implode('', $links);
         }
 
         return <<<HTML
@@ -886,13 +903,13 @@ class NestCameraViewer extends IPSModuleStrict
   </style>
 </head>
 <body>
-<div id="wrap">
-  <div id="allModeLinks" style="display: {$allModeDisplay}; padding: 12px; color:#eee;">
-    {$cameraLinksHtml}
+  <div id="wrap">
+    <div id="allModeLinks" style="display: {$allModeDisplay}; padding: 12px; color:#eee;">
+      {$cameraLinksHtml}
+    </div>
+    <video id="video" autoplay playsinline muted></video>
+    <div id="debugBox"></div>
   </div>
-  <video id="video" autoplay playsinline muted></video>
-  <div id="debugBox"></div>
-</div>
 
   <script>
     const backendBaseUrl = '{$hookPath}';
@@ -903,6 +920,10 @@ class NestCameraViewer extends IPSModuleStrict
 
     const videoEl = document.getElementById('video');
     const debugBox = document.getElementById('debugBox');
+
+    if (allMode) {
+      videoEl.style.display = 'none';
+    }
 
     let pc = null;
     let currentMediaSessionId = '';
