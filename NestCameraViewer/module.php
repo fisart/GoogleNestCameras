@@ -30,6 +30,9 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterVariableString('StreamStatus', 'Stream Status', '', 20);
         $this->RegisterVariableString('SelectedCameraLabel', 'Selected Camera', '', 30);
         $this->RegisterVariableString('ExpiresAt', 'Expires At', '', 40);
+
+        $this->RegisterPropertyInteger('AuthMode', 0);
+        $this->RegisterPropertyInteger('VaultInstanceID', 0);
     }
 
     public function ApplyChanges(): void
@@ -53,6 +56,15 @@ class NestCameraViewer extends IPSModuleStrict
             $this->SetStatus(self::STATUS_TOKEN_ERROR);
             $this->SetValue('StreamStatus', 'Token variable missing or empty');
             $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('Token variable missing or empty'));
+            return;
+        }
+        $authMode = $this->ReadPropertyInteger('AuthMode');
+        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
+
+        if ($authMode > 0 && $vaultID <= 0) {
+            $this->SetStatus(self::STATUS_GOOGLE_ERROR);
+            $this->SetValue('StreamStatus', 'Vault instance missing');
+            $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('Vault instance missing'));
             return;
         }
 
@@ -149,6 +161,30 @@ class NestCameraViewer extends IPSModuleStrict
             ],
             [
                 'type'    => 'Select',
+                'name'    => 'AuthMode',
+                'caption' => 'WebHook Protection',
+                'options' => [
+                    [
+                        'caption' => 'No password',
+                        'value'   => 0
+                    ],
+                    [
+                        'caption' => 'Vault / WebHook password',
+                        'value'   => 1
+                    ],
+                    [
+                        'caption' => 'Passkey',
+                        'value'   => 2
+                    ]
+                ]
+            ],
+            [
+                'type'    => 'SelectInstance',
+                'name'    => 'VaultInstanceID',
+                'caption' => 'Vault Instance'
+            ],
+            [
+                'type'    => 'Select',
                 'name'    => 'SelectedDeviceName',
                 'caption' => 'Camera',
                 'options' => $deviceOptions
@@ -212,6 +248,33 @@ class NestCameraViewer extends IPSModuleStrict
         echo 'Viewer rebuilt';
     }
 
+    private function EnforceWebhookAuth(): void
+    {
+        $authMode = $this->ReadPropertyInteger('AuthMode');
+        if ($authMode === 0) {
+            return;
+        }
+
+        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
+        if ($vaultID <= 0) {
+            throw new Exception('VaultInstanceID is not configured');
+        }
+
+        if (!function_exists('SEC_IsPortalAuthenticated')) {
+            throw new Exception('SecretsManager functions are not available');
+        }
+
+        if (isset($_IPS['SENDER']) && $_IPS['SENDER'] === 'WebHook') {
+            if (!SEC_IsPortalAuthenticated($vaultID)) {
+                $currentUrl = $_SERVER['REQUEST_URI'] ?? '';
+                $loginUrl = '/hook/secrets_' . $vaultID . '?portal=1&return=' . urlencode($currentUrl);
+                header('Location: ' . $loginUrl);
+                exit;
+            }
+        }
+    }
+
+
     protected function ProcessHookData(): void
     {
         $uri = $_SERVER['REQUEST_URI'] ?? '';
@@ -230,9 +293,6 @@ class NestCameraViewer extends IPSModuleStrict
         try {
             switch ($action) {
                 case 'page':
-                    header('Content-Type: text/html; charset=utf-8');
-                    echo $this->RenderViewerHtml();
-                    return;
 
                 case 'ping':
                     $this->SendJson([
