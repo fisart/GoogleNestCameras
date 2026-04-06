@@ -914,6 +914,10 @@ class NestCameraViewer extends IPSModuleStrict
             throw new Exception('Local OAuth setup is incomplete');
         }
 
+        if (!str_contains($clientId, '.apps.googleusercontent.com')) {
+            throw new Exception('OAuth ClientID in local vault is incomplete. The full Google Client ID including .apps.googleusercontent.com is required.');
+        }
+
         $state = bin2hex(random_bytes(16));
         $this->WriteAttributeString('OAuthLastState', $state);
 
@@ -933,7 +937,7 @@ class NestCameraViewer extends IPSModuleStrict
             '/auth?' .
             http_build_query($params, '', '&', PHP_QUERY_RFC3986);
 
-        SetValue($this->GetIDForIdent('AuthorizationURL'), $authUrl);
+        $this->SetValue('AuthorizationURL', $authUrl);
 
         echo $authUrl;
     }
@@ -1006,9 +1010,9 @@ class NestCameraViewer extends IPSModuleStrict
     {
         $expiresAt = time() + $expiresIn;
 
-        SetValue($this->GetIDForIdent('RefreshToken'), $refreshToken);
-        SetValue($this->GetIDForIdent('AccessToken'), $accessToken);
-        SetValue($this->GetIDForIdent('AccessTokenExpiresAt'), date('c', $expiresAt));
+        $this->SetValue('RefreshToken', $refreshToken);
+        $this->SetValue('AccessToken', $accessToken);
+        $this->SetValue('AccessTokenExpiresAt', date('c', $expiresAt));
 
         $this->WriteAttributeString('OAuthBootstrapCompleted', '1');
     }
@@ -1126,8 +1130,8 @@ class NestCameraViewer extends IPSModuleStrict
 
         $expiresAt = time() + $expiresIn;
 
-        SetValue($this->GetIDForIdent('AccessToken'), $accessToken);
-        SetValue($this->GetIDForIdent('AccessTokenExpiresAt'), date('c', $expiresAt));
+        $this->SetValue('AccessToken', $accessToken);
+        $this->SetValue('AccessTokenExpiresAt', date('c', $expiresAt));
 
         return $accessToken;
     }
