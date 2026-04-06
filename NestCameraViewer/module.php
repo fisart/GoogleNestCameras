@@ -56,7 +56,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterAttributeString('HookDeviceMapJson', '{}');
         $this->RegisterAttributeString('OAuthLastState', '');
         $this->RegisterAttributeString('OAuthBootstrapCompleted', '0');
-
+        $this->RegisterAttributeString('LastGoogleError', '');
         // Viewer variables
         $this->RegisterVariableString('ViewerHTML', 'Viewer', '~HTMLBox', 10);
         $this->RegisterVariableString('StreamStatus', 'Stream Status', '', 20);
@@ -158,9 +158,15 @@ class NestCameraViewer extends IPSModuleStrict
 
         $devices = $this->FetchDevices();
         if ($devices === null) {
+            $detail = trim($this->ReadAttributeString('LastGoogleError'));
+            $message = 'Google SDM request failed';
+            if ($detail !== '') {
+                $message .= ': ' . $detail;
+            }
+
             $this->SetStatus(self::STATUS_GOOGLE_ERROR);
-            $this->SetValue('StreamStatus', 'Google SDM request failed');
-            $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('Google SDM request failed'));
+            $this->SetValue('StreamStatus', $message);
+            $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml($message));
             return;
         }
 
@@ -395,8 +401,14 @@ class NestCameraViewer extends IPSModuleStrict
     {
         $devices = $this->FetchDevices();
         if ($devices === null) {
+            $detail = trim($this->ReadAttributeString('LastGoogleError'));
+            $message = 'Google SDM request failed';
+            if ($detail !== '') {
+                $message .= ': ' . $detail;
+            }
+
             $this->SetStatus(self::STATUS_GOOGLE_ERROR);
-            echo 'Google SDM request failed';
+            echo $message;
             return;
         }
 
@@ -680,30 +692,55 @@ class NestCameraViewer extends IPSModuleStrict
 
     private function FetchDevices(): ?array
     {
+        $this->WriteAttributeString('LastGoogleError', '');
+
         try {
             $token = $this->GetApiAccessToken();
         } catch (Throwable $e) {
+            $msg = 'Access token unavailable: ' . $e->getMessage();
+            $this->WriteAttributeString('LastGoogleError', $msg);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
         if ($token === '') {
+            $msg = 'Access token is empty';
+            $this->WriteAttributeString('LastGoogleError', $msg);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
         $enterpriseId = $this->DetectEnterpriseId();
         if ($enterpriseId === '') {
+            $msg = 'EnterpriseID missing or unreadable from local OAuth config';
+            $this->WriteAttributeString('LastGoogleError', $msg);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
         $url = 'https://smartdevicemanagement.googleapis.com/v1/enterprises/' . $enterpriseId . '/devices';
         $result = $this->GoogleRequest($url, 'GET');
 
-        if ($result['httpCode'] !== 200) {
+        if (($result['httpCode'] ?? 0) !== 200) {
+            $raw = trim((string) ($result['response'] ?? ''));
+            $httpCode = (int) ($result['httpCode'] ?? 0);
+
+            $detail = 'HTTP ' . $httpCode;
+            if ($raw !== '') {
+                $detail .= ' - ' . $raw;
+            }
+
+            $msg = 'Devices request failed: ' . $detail;
+            $this->WriteAttributeString('LastGoogleError', $msg);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
-        $json = json_decode($result['response'], true);
+        $json = json_decode((string) $result['response'], true);
         if (!is_array($json) || !isset($json['devices']) || !is_array($json['devices'])) {
+            $msg = 'Devices response is not valid JSON or contains no devices array';
+            $this->WriteAttributeString('LastGoogleError', $msg);
+            $this->LogMessage($msg, KL_ERROR);
             return [];
         }
 
