@@ -795,10 +795,7 @@ class NestCameraViewer extends IPSModuleStrict
         return $selected;
     }
 
-    private function DetectEnterpriseId(): string
-    {
-        return trim($this->ReadPropertyString('EnterpriseID'));
-    }
+
 
     private function LoadOAuthStaticConfig(): array
     {
