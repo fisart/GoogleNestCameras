@@ -950,10 +950,27 @@ class NestCameraViewer extends IPSModuleStrict
 
         $oauth = $this->LoadOAuthStaticConfig();
 
-        $clientId          = trim($oauth['ClientID']);
-        $clientSecret      = trim($oauth['ClientSecret']);
-        $redirectUri       = trim($oauth['RedirectURI']);
-        $authorizationCode = trim($this->ReadPropertyString('BootstrapAuthorizationCode'));
+        $clientId     = trim($oauth['ClientID']);
+        $clientSecret = trim($oauth['ClientSecret']);
+        $redirectUri  = trim($oauth['RedirectURI']);
+
+        $authorizationInput = trim($this->ReadPropertyString('BootstrapAuthorizationCode'));
+        $authorizationCode  = $authorizationInput;
+
+        // Wenn eine komplette URL eingefügt wurde, den code-Parameter extrahieren
+        if (str_starts_with($authorizationInput, 'http://') || str_starts_with($authorizationInput, 'https://')) {
+            $query = parse_url($authorizationInput, PHP_URL_QUERY);
+            if (!is_string($query) || $query === '') {
+                throw new Exception('No query string found in bootstrap URL');
+            }
+
+            parse_str($query, $params);
+            $authorizationCode = isset($params['code']) ? trim((string) $params['code']) : '';
+
+            if ($authorizationCode === '') {
+                throw new Exception('No authorization code found in bootstrap URL');
+            }
+        }
 
         if ($clientId === '' || $clientSecret === '' || $redirectUri === '' || $authorizationCode === '') {
             throw new Exception('ClientID, ClientSecret, RedirectURI and BootstrapAuthorizationCode are required');
