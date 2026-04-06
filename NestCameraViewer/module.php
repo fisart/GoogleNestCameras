@@ -198,12 +198,16 @@ class NestCameraViewer extends IPSModuleStrict
             ];
         }
 
-        $tokenVarID = $this->ReadPropertyInteger('TokenVariableID');
+        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
         $currentSelectedDevice = $this->ReadPropertyString('SelectedDeviceName');
 
-        if ($tokenVarID > 0 && IPS_VariableExists($tokenVarID)) {
-            $devices = $this->GetCachedDevices();
-        } else {
+        try {
+            if ($vaultID > 0) {
+                $devices = $this->GetCachedDevices();
+            } else {
+                $devices = [];
+            }
+        } catch (Throwable $e) {
             $devices = [];
         }
 
