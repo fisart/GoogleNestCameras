@@ -14,26 +14,60 @@ class NestCameraViewer extends IPSModuleStrict
     {
         parent::Create();
 
-        $this->RegisterPropertyInteger('TokenVariableID', 0);
-        $this->RegisterPropertyString('EnterpriseID', 'f779e361-a2e1-43ef-8ffd-dfd46d3e69ab');
+        // Shared vault instance
+        $this->RegisterPropertyInteger('VaultInstanceID', 0);
+
+        // Viewer auth
+        $this->RegisterPropertyString('ViewerAuthIdent', 'NestCameraViewer/Auth');
+
+        // Local OAuth record path inside vault (__LOCAL__ via scope=local)
+        $this->RegisterPropertyString('OAuthConnectionIdent', 'GoogleNest/SharedConnection');
+
+        // Static OAuth setup input
+        $this->RegisterPropertyString('OAuthSetupConnectionName', 'Hermitage Nest');
+        $this->RegisterPropertyString('OAuthSetupProjectID', '');
+        $this->RegisterPropertyString('OAuthSetupEnterpriseID', '');
+        $this->RegisterPropertyString('OAuthSetupClientID', '');
+        $this->RegisterPropertyString('OAuthSetupClientSecret', '');
+        $this->RegisterPropertyString('OAuthSetupRedirectURI', 'https://www.google.com');
+        $this->RegisterPropertyString('OAuthSetupScope', 'https://www.googleapis.com/auth/sdm.service');
+        $this->RegisterPropertyString('BootstrapAuthorizationCode', '');
+
+        // Viewer / routing
         $this->RegisterPropertyString('SelectedDeviceName', '');
         $this->RegisterPropertyString('HookName', 'nestcam');
+
+        // Master / slave token model
+        $this->RegisterPropertyBoolean('IsTokenMaster', false);
+        $this->RegisterPropertyInteger('ExternalAccessTokenVariableID', 0);
+        $this->RegisterPropertyInteger('ExternalRefreshTokenVariableID', 0);
+
+        // WebHook protection
         $this->RegisterPropertyInteger('AuthMode', 0);
-        $this->RegisterPropertyInteger('VaultInstanceID', 0);
         $this->RegisterPropertyBoolean('AutoExtend', true);
         $this->RegisterPropertyBoolean('Debug', false);
 
+        // Attributes
         $this->RegisterAttributeString('CachedDevicesJson', '[]');
         $this->RegisterAttributeString('LastOfferSummary', '');
         $this->RegisterAttributeString('LastAnswerSummary', '');
         $this->RegisterAttributeString('RegisteredHookName', '');
         $this->RegisterAttributeString('RegisteredCameraHooksJson', '[]');
         $this->RegisterAttributeString('HookDeviceMapJson', '{}');
+        $this->RegisterAttributeString('OAuthLastState', '');
+        $this->RegisterAttributeString('OAuthBootstrapCompleted', '0');
 
+        // Viewer variables
         $this->RegisterVariableString('ViewerHTML', 'Viewer', '~HTMLBox', 10);
         $this->RegisterVariableString('StreamStatus', 'Stream Status', '', 20);
         $this->RegisterVariableString('SelectedCameraLabel', 'Selected Camera', '', 30);
         $this->RegisterVariableString('ExpiresAt', 'Expires At', '', 40);
+
+        // Local token variables (master)
+        $this->RegisterVariableString('AccessToken', 'Access Token', '', 50);
+        $this->RegisterVariableString('AccessTokenExpiresAt', 'Access Token Expires At', '', 60);
+        $this->RegisterVariableString('RefreshToken', 'Refresh Token', '', 70);
+        $this->RegisterVariableString('AuthorizationURL', 'Authorization URL', '', 80);
     }
 
     public function ApplyChanges(): void
@@ -54,21 +88,72 @@ class NestCameraViewer extends IPSModuleStrict
 
         $this->UnregisterGeneratedCameraHooks();
 
-        $token = $this->GetToken();
-        if ($token === '') {
+        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
+        if ($vaultID <= 0) {
             $this->SetStatus(self::STATUS_TOKEN_ERROR);
-            $this->SetValue('StreamStatus', 'Token variable missing or empty');
-            $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('Token variable missing or empty'));
+            $this->SetValue('StreamStatus', 'Vault instance missing');
+            $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('Vault instance missing'));
             return;
         }
 
         $authMode = $this->ReadPropertyInteger('AuthMode');
-        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
         if ($authMode > 0 && $vaultID <= 0) {
             $this->SetStatus(self::STATUS_GOOGLE_ERROR);
             $this->SetValue('StreamStatus', 'Vault instance missing');
             $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('Vault instance missing'));
             return;
+        }
+
+        if ($this->ReadPropertyBoolean('IsTokenMaster')) {
+            try {
+                $this->LoadOAuthStaticConfig();
+            } catch (Throwable $e) {
+                $this->SetStatus(self::STATUS_TOKEN_ERROR);
+                $this->SetValue('StreamStatus', 'Local OAuth setup missing or invalid');
+                $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('Local OAuth setup missing or invalid'));
+                return;
+            }
+
+            $refreshToken = trim((string) GetValue($this->GetIDForIdent('RefreshToken')));
+            if ($refreshToken === '') {
+                $this->SetStatus(self::STATUS_TOKEN_ERROR);
+                $this->SetValue('StreamStatus', 'Bootstrap required: no local refresh token');
+                $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('Bootstrap required: no local refresh token'));
+                return;
+            }
+        } else {
+            $accessVarID = $this->ReadPropertyInteger('ExternalAccessTokenVariableID');
+            $refreshVarID = $this->ReadPropertyInteger('ExternalRefreshTokenVariableID');
+
+            if ($accessVarID <= 0 || !IPS_VariableExists($accessVarID)) {
+                $this->SetStatus(self::STATUS_TOKEN_ERROR);
+                $this->SetValue('StreamStatus', 'External access token variable missing');
+                $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('External access token variable missing'));
+                return;
+            }
+
+            if ($refreshVarID <= 0 || !IPS_VariableExists($refreshVarID)) {
+                $this->SetStatus(self::STATUS_TOKEN_ERROR);
+                $this->SetValue('StreamStatus', 'External refresh token variable missing');
+                $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('External refresh token variable missing'));
+                return;
+            }
+
+            $externalRefreshToken = trim((string) GetValue($refreshVarID));
+            if ($externalRefreshToken === '') {
+                $this->SetStatus(self::STATUS_TOKEN_ERROR);
+                $this->SetValue('StreamStatus', 'External refresh token variable is empty');
+                $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('External refresh token variable is empty'));
+                return;
+            }
+
+            $externalAccessToken = trim((string) GetValue($accessVarID));
+            if ($externalAccessToken === '') {
+                $this->SetStatus(self::STATUS_TOKEN_ERROR);
+                $this->SetValue('StreamStatus', 'External access token variable is empty');
+                $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('External access token variable is empty'));
+                return;
+            }
         }
 
         $devices = $this->FetchDevices();
@@ -161,14 +246,78 @@ class NestCameraViewer extends IPSModuleStrict
 
         $form['elements'] = [
             [
-                'type'    => 'SelectVariable',
-                'name'    => 'TokenVariableID',
-                'caption' => 'Token Variable'
+                'type'    => 'Label',
+                'caption' => 'Bootstrap-Schritte (nur Master): 1) OAuth-Felder unten ausfüllen. 2) "Save OAuth Setup to Local Vault" klicken. 3) "Generate Authorization URL" klicken. 4) URL in normalem Browser öffnen. 5) Google-Login/Consent durchführen. 6) Wert hinter code= aus der Rückgabe-URL kopieren. 7) In "Bootstrap Authorization Code" einfügen. 8) "Exchange Authorization Code" klicken. 9) RefreshToken und AccessToken werden in Variablen unter dieser Instanz gespeichert.'
+            ],
+            [
+                'type'    => 'SelectInstance',
+                'name'    => 'VaultInstanceID',
+                'caption' => 'Vault Instance'
             ],
             [
                 'type'    => 'ValidationTextBox',
-                'name'    => 'EnterpriseID',
-                'caption' => 'Enterprise ID'
+                'name'    => 'ViewerAuthIdent',
+                'caption' => 'Viewer Auth Ident'
+            ],
+            [
+                'type'    => 'ValidationTextBox',
+                'name'    => 'OAuthConnectionIdent',
+                'caption' => 'OAuth Connection Ident'
+            ],
+            [
+                'type'    => 'CheckBox',
+                'name'    => 'IsTokenMaster',
+                'caption' => 'This instance is Token Master'
+            ],
+            [
+                'type'    => 'SelectVariable',
+                'name'    => 'ExternalAccessTokenVariableID',
+                'caption' => 'External Access Token Variable (slave mode)'
+            ],
+            [
+                'type'    => 'SelectVariable',
+                'name'    => 'ExternalRefreshTokenVariableID',
+                'caption' => 'External Refresh Token Variable (slave mode)'
+            ],
+            [
+                'type'    => 'ValidationTextBox',
+                'name'    => 'OAuthSetupConnectionName',
+                'caption' => 'OAuth Connection Name'
+            ],
+            [
+                'type'    => 'ValidationTextBox',
+                'name'    => 'OAuthSetupProjectID',
+                'caption' => 'OAuth Project ID'
+            ],
+            [
+                'type'    => 'ValidationTextBox',
+                'name'    => 'OAuthSetupEnterpriseID',
+                'caption' => 'OAuth Enterprise ID'
+            ],
+            [
+                'type'    => 'ValidationTextBox',
+                'name'    => 'OAuthSetupClientID',
+                'caption' => 'OAuth Client ID'
+            ],
+            [
+                'type'    => 'ValidationTextBox',
+                'name'    => 'OAuthSetupClientSecret',
+                'caption' => 'OAuth Client Secret'
+            ],
+            [
+                'type'    => 'ValidationTextBox',
+                'name'    => 'OAuthSetupRedirectURI',
+                'caption' => 'OAuth Redirect URI'
+            ],
+            [
+                'type'    => 'ValidationTextBox',
+                'name'    => 'OAuthSetupScope',
+                'caption' => 'OAuth Scope'
+            ],
+            [
+                'type'    => 'ValidationTextBox',
+                'name'    => 'BootstrapAuthorizationCode',
+                'caption' => 'Bootstrap Authorization Code'
             ],
             [
                 'type'    => 'ValidationTextBox',
@@ -180,24 +329,10 @@ class NestCameraViewer extends IPSModuleStrict
                 'name'    => 'AuthMode',
                 'caption' => 'WebHook Protection',
                 'options' => [
-                    [
-                        'caption' => 'No password',
-                        'value'   => 0
-                    ],
-                    [
-                        'caption' => 'Vault / WebHook password',
-                        'value'   => 1
-                    ],
-                    [
-                        'caption' => 'Passkey',
-                        'value'   => 2
-                    ]
+                    ['caption' => 'No password',              'value' => 0],
+                    ['caption' => 'Vault / WebHook password', 'value' => 1],
+                    ['caption' => 'Passkey',                  'value' => 2]
                 ]
-            ],
-            [
-                'type'    => 'SelectInstance',
-                'name'    => 'VaultInstanceID',
-                'caption' => 'Vault Instance'
             ],
             [
                 'type'    => 'Select',
@@ -222,6 +357,21 @@ class NestCameraViewer extends IPSModuleStrict
         ];
 
         $form['actions'] = [
+            [
+                'type'    => 'Button',
+                'caption' => 'Save OAuth Setup to Local Vault',
+                'onClick' => 'NESTCAM_SaveOAuthSetupToLocalVault($id);'
+            ],
+            [
+                'type'    => 'Button',
+                'caption' => 'Generate Authorization URL',
+                'onClick' => 'NESTCAM_GenerateAuthorizationURL($id);'
+            ],
+            [
+                'type'    => 'Button',
+                'caption' => 'Exchange Authorization Code',
+                'onClick' => 'NESTCAM_ExchangeAuthorizationCode($id);'
+            ],
             [
                 'type'    => 'Button',
                 'caption' => 'Refresh device list',
@@ -522,19 +672,16 @@ class NestCameraViewer extends IPSModuleStrict
         }
     }
 
-    private function GetToken(): string
-    {
-        $varID = $this->ReadPropertyInteger('TokenVariableID');
-        if ($varID <= 0 || !IPS_VariableExists($varID)) {
-            return '';
-        }
 
-        return trim((string) GetValue($varID));
-    }
 
     private function FetchDevices(): ?array
     {
-        $token = $this->GetToken();
+        try {
+            $token = $this->GetApiAccessToken();
+        } catch (Throwable $e) {
+            return null;
+        }
+
         if ($token === '') {
             return null;
         }
@@ -653,9 +800,354 @@ class NestCameraViewer extends IPSModuleStrict
         return trim($this->ReadPropertyString('EnterpriseID'));
     }
 
+    private function LoadOAuthStaticConfig(): array
+    {
+        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
+        if ($vaultID <= 0) {
+            throw new Exception('VaultInstanceID is not configured');
+        }
+
+        $path = trim($this->ReadPropertyString('OAuthConnectionIdent'));
+        if ($path === '') {
+            throw new Exception('OAuthConnectionIdent is not configured');
+        }
+
+        $parts = explode('/', $path);
+        if (count($parts) < 2) {
+            throw new Exception('OAuthConnectionIdent must include at least one folder and one record');
+        }
+
+        $rootIdent = array_shift($parts);
+
+        // local records are written under __LOCAL__
+        $json = SEC_GetSecret($vaultID, '__LOCAL__');
+        if ($json === '') {
+            throw new Exception('Vault returned empty local data');
+        }
+
+        $data = json_decode($json, true);
+        if (!is_array($data)) {
+            throw new Exception('Local vault data is not valid JSON');
+        }
+
+        $node = $data;
+        foreach (explode('/', trim($path, '/')) as $segment) {
+            if ($segment === '') {
+                continue;
+            }
+
+            if (!isset($node[$segment]) || !is_array($node[$segment])) {
+                throw new Exception('Local OAuth record not found: ' . $path);
+            }
+
+            $node = $node[$segment];
+        }
+
+        return $this->NormalizeOAuthStaticConfig($node);
+    }
+
+    private function NormalizeOAuthStaticConfig(array $data): array
+    {
+        return [
+            'ConnectionName' => (string) ($data['ConnectionName'] ?? ''),
+            'ProjectID'      => (string) ($data['ProjectID'] ?? ''),
+            'EnterpriseID'   => (string) ($data['EnterpriseID'] ?? ''),
+            'ClientID'       => (string) ($data['ClientID'] ?? ''),
+            'ClientSecret'   => (string) ($data['ClientSecret'] ?? ''),
+            'RedirectURI'    => (string) ($data['RedirectURI'] ?? ''),
+            'Scope'          => (string) ($data['Scope'] ?? 'https://www.googleapis.com/auth/sdm.service'),
+            'GoogleAccount'  => (string) ($data['GoogleAccount'] ?? '')
+        ];
+    }
+
+
+    public function SaveOAuthSetupToLocalVault(): void
+    {
+        $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
+        if ($vaultID <= 0) {
+            throw new Exception('VaultInstanceID is not configured');
+        }
+
+        if (!function_exists('SEC_SetRecordFields')) {
+            throw new Exception('SEC_SetRecordFields() is not available');
+        }
+
+        $path = trim($this->ReadPropertyString('OAuthConnectionIdent'));
+        if ($path === '') {
+            throw new Exception('OAuthConnectionIdent is not configured');
+        }
+
+        $fields = [
+            'ConnectionName' => $this->ReadPropertyString('OAuthSetupConnectionName'),
+            'ProjectID'      => $this->ReadPropertyString('OAuthSetupProjectID'),
+            'EnterpriseID'   => $this->ReadPropertyString('OAuthSetupEnterpriseID'),
+            'ClientID'       => $this->ReadPropertyString('OAuthSetupClientID'),
+            'ClientSecret'   => $this->ReadPropertyString('OAuthSetupClientSecret'),
+            'RedirectURI'    => $this->ReadPropertyString('OAuthSetupRedirectURI'),
+            'Scope'          => $this->ReadPropertyString('OAuthSetupScope'),
+            'GoogleAccount'  => ''
+        ];
+
+        $ok = SEC_SetRecordFields($vaultID, $path, $fields, 'local');
+        if (!$ok) {
+            throw new Exception('Saving local OAuth setup to vault failed');
+        }
+
+        echo 'Local OAuth setup saved to vault';
+    }
+
+    public function GenerateAuthorizationURL(): void
+    {
+        if (!$this->ReadPropertyBoolean('IsTokenMaster')) {
+            throw new Exception('Only the token master may generate the authorization URL');
+        }
+
+        $oauth = $this->LoadOAuthStaticConfig();
+
+        $projectId   = trim($oauth['ProjectID']);
+        $clientId    = trim($oauth['ClientID']);
+        $redirectUri = trim($oauth['RedirectURI']);
+        $scope       = trim($oauth['Scope']);
+
+        if ($projectId === '' || $clientId === '' || $redirectUri === '' || $scope === '') {
+            throw new Exception('Local OAuth setup is incomplete');
+        }
+
+        $state = bin2hex(random_bytes(16));
+        $this->WriteAttributeString('OAuthLastState', $state);
+
+        $params = [
+            'redirect_uri'  => $redirectUri,
+            'access_type'   => 'offline',
+            'prompt'        => 'consent',
+            'client_id'     => $clientId,
+            'response_type' => 'code',
+            'scope'         => $scope,
+            'state'         => $state
+        ];
+
+        $authUrl =
+            'https://nestservices.google.com/partnerconnections/' .
+            rawurlencode($projectId) .
+            '/auth?' .
+            http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+
+        SetValue($this->GetIDForIdent('AuthorizationURL'), $authUrl);
+
+        echo $authUrl;
+    }
+
+    public function ExchangeAuthorizationCode(): void
+    {
+        if (!$this->ReadPropertyBoolean('IsTokenMaster')) {
+            throw new Exception('Only the token master may exchange the authorization code');
+        }
+
+        $oauth = $this->LoadOAuthStaticConfig();
+
+        $clientId          = trim($oauth['ClientID']);
+        $clientSecret      = trim($oauth['ClientSecret']);
+        $redirectUri       = trim($oauth['RedirectURI']);
+        $authorizationCode = trim($this->ReadPropertyString('BootstrapAuthorizationCode'));
+
+        if ($clientId === '' || $clientSecret === '' || $redirectUri === '' || $authorizationCode === '') {
+            throw new Exception('ClientID, ClientSecret, RedirectURI and BootstrapAuthorizationCode are required');
+        }
+
+        $postFields = http_build_query([
+            'client_id'     => $clientId,
+            'client_secret' => $clientSecret,
+            'code'          => $authorizationCode,
+            'grant_type'    => 'authorization_code',
+            'redirect_uri'  => $redirectUri
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        $ch = curl_init('https://oauth2.googleapis.com/token');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $postFields,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/x-www-form-urlencoded'],
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr  = curl_error($ch);
+        curl_close($ch);
+
+        if ($response === false || $curlErr !== '') {
+            throw new Exception('Token exchange cURL error: ' . $curlErr);
+        }
+
+        $json = json_decode($response, true);
+        if (!is_array($json) || $httpCode !== 200) {
+            throw new Exception('Token exchange failed: ' . $response);
+        }
+
+        $refreshToken = (string) ($json['refresh_token'] ?? '');
+        $accessToken  = (string) ($json['access_token'] ?? '');
+        $expiresIn    = (int) ($json['expires_in'] ?? 3600);
+
+        if ($refreshToken === '') {
+            throw new Exception('Token exchange returned no refresh token');
+        }
+
+        $this->StoreMasterTokens($refreshToken, $accessToken, $expiresIn);
+
+        echo 'Authorization code exchanged successfully';
+    }
+
+
+    private function StoreMasterTokens(string $refreshToken, string $accessToken, int $expiresIn): void
+    {
+        $expiresAt = time() + $expiresIn;
+
+        SetValue($this->GetIDForIdent('RefreshToken'), $refreshToken);
+        SetValue($this->GetIDForIdent('AccessToken'), $accessToken);
+        SetValue($this->GetIDForIdent('AccessTokenExpiresAt'), date('c', $expiresAt));
+
+        $this->WriteAttributeString('OAuthBootstrapCompleted', '1');
+    }
+
+    private function GetApiAccessToken(): string
+    {
+        if ($this->ReadPropertyBoolean('IsTokenMaster')) {
+            return $this->GetMasterAccessToken();
+        }
+
+        return $this->GetExternalAccessToken();
+    }
+
+
+    private function GetExternalAccessToken(): string
+    {
+        $varID = $this->ReadPropertyInteger('ExternalAccessTokenVariableID');
+        if ($varID <= 0 || !IPS_VariableExists($varID)) {
+            throw new Exception('External access token variable is not configured');
+        }
+
+        $token = trim((string) GetValue($varID));
+        if ($token === '') {
+            throw new Exception('External access token variable is empty');
+        }
+
+        return $token;
+    }
+
+    private function GetMasterRefreshToken(): string
+    {
+        $token = trim((string) GetValue($this->GetIDForIdent('RefreshToken')));
+        if ($token === '') {
+            throw new Exception('No local refresh token available');
+        }
+
+        return $token;
+    }
+
+    private function GetMasterAccessToken(): string
+    {
+        $accessToken = trim((string) GetValue($this->GetIDForIdent('AccessToken')));
+        $expiresText = trim((string) GetValue($this->GetIDForIdent('AccessTokenExpiresAt')));
+        $expiresAt = $expiresText !== '' ? strtotime($expiresText) : 0;
+        $now = time();
+
+        $refreshToken = $this->GetMasterRefreshToken();
+
+        if ($refreshToken === '') {
+            throw new Exception('OAuth bootstrap required: no local refresh token');
+        }
+
+        if ($accessToken === '' || $expiresAt === false || $expiresAt <= ($now + 300)) {
+            $accessToken = $this->RefreshMasterAccessToken();
+        }
+
+        if ($accessToken === '') {
+            throw new Exception('Unable to obtain valid access token');
+        }
+
+        return $accessToken;
+    }
+
+
+    private function RefreshMasterAccessToken(): string
+    {
+        $oauth = $this->LoadOAuthStaticConfig();
+
+        $clientId = trim($oauth['ClientID']);
+        $clientSecret = trim($oauth['ClientSecret']);
+        $refreshToken = $this->GetMasterRefreshToken();
+
+        if ($clientId === '' || $clientSecret === '' || $refreshToken === '') {
+            throw new Exception('OAuth refresh requires ClientID, ClientSecret and local RefreshToken');
+        }
+
+        $postFields = http_build_query([
+            'client_id'     => $clientId,
+            'client_secret' => $clientSecret,
+            'refresh_token' => $refreshToken,
+            'grant_type'    => 'refresh_token'
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        $ch = curl_init('https://oauth2.googleapis.com/token');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $postFields,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/x-www-form-urlencoded'],
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($response === false || $curlErr !== '') {
+            throw new Exception('OAuth refresh cURL error: ' . $curlErr);
+        }
+
+        $json = json_decode($response, true);
+        if (!is_array($json) || $httpCode !== 200) {
+            throw new Exception('OAuth refresh failed: ' . $response);
+        }
+
+        $accessToken = (string) ($json['access_token'] ?? '');
+        $expiresIn = (int) ($json['expires_in'] ?? 3600);
+
+        if ($accessToken === '') {
+            throw new Exception('OAuth refresh returned no access token');
+        }
+
+        $expiresAt = time() + $expiresIn;
+
+        SetValue($this->GetIDForIdent('AccessToken'), $accessToken);
+        SetValue($this->GetIDForIdent('AccessTokenExpiresAt'), date('c', $expiresAt));
+
+        return $accessToken;
+    }
+
+
+
+    private function DetectEnterpriseId(): string
+    {
+        try {
+            $oauth = $this->LoadOAuthStaticConfig();
+            return trim((string) $oauth['EnterpriseID']);
+        } catch (Throwable $e) {
+            return '';
+        }
+    }
+
+
+
     private function GoogleRequest(string $url, string $method, ?array $body = null): array
     {
-        $token = $this->GetToken();
+        $token = $this->GetApiAccessToken();
         $headers = [
             'Authorization: Bearer ' . $token,
             'Content-Type: application/json'
