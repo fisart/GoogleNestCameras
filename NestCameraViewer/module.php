@@ -1089,6 +1089,14 @@ class NestCameraViewer extends IPSModuleStrict
         }
 
         $token = trim((string) GetValue($varID));
+
+        $this->LogMessage(
+            'XXX_GetExternalAccessToken varID=' . $varID .
+                ' len=' . strlen($token) .
+                ' sha1=' . sha1($token),
+            KL_MESSAGE
+        );
+
         if ($token === '') {
             throw new Exception('External access token variable is empty');
         }
@@ -1115,12 +1123,25 @@ class NestCameraViewer extends IPSModuleStrict
 
         $refreshToken = $this->GetMasterRefreshToken();
 
+        $this->LogMessage(
+            'XXX_GetMasterAccessToken len=' . strlen($accessToken) .
+                ' sha1=' . sha1($accessToken) .
+                ' expires=' . $expiresText,
+            KL_MESSAGE
+        );
+
         if ($refreshToken === '') {
             throw new Exception('OAuth bootstrap required: no local refresh token');
         }
 
         if ($accessToken === '' || $expiresAt === false || $expiresAt <= ($now + 300)) {
             $accessToken = $this->RefreshMasterAccessToken();
+
+            $this->LogMessage(
+                'XXX_GetMasterAccessToken refreshed len=' . strlen($accessToken) .
+                    ' sha1=' . sha1($accessToken),
+                KL_MESSAGE
+            );
         }
 
         if ($accessToken === '') {
@@ -1207,6 +1228,15 @@ class NestCameraViewer extends IPSModuleStrict
     private function GoogleRequest(string $url, string $method, ?array $body = null): array
     {
         $token = $this->GetApiAccessToken();
+
+        $this->LogMessage(
+            'XXX_GoogleRequest method=' . $method .
+                ' url=' . $url .
+                ' token_len=' . strlen($token) .
+                ' token_sha1=' . sha1($token),
+            KL_MESSAGE
+        );
+
         $headers = [
             'Authorization: Bearer ' . $token,
             'Content-Type: application/json'
@@ -1224,6 +1254,11 @@ class NestCameraViewer extends IPSModuleStrict
 
         if ($body !== null) {
             $options[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_SLASHES);
+
+            $this->LogMessage(
+                'XXX_GoogleRequest body=' . json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                KL_MESSAGE
+            );
         }
 
         curl_setopt_array($ch, $options);
@@ -1233,12 +1268,27 @@ class NestCameraViewer extends IPSModuleStrict
         curl_close($ch);
 
         if ($response === false) {
+            $this->LogMessage(
+                'XXX_GoogleRequest FAILED method=' . $method .
+                    ' url=' . $url .
+                    ' curlErr=' . $curlErr,
+                KL_ERROR
+            );
+
             return [
                 'httpCode' => 0,
                 'response' => $curlErr,
                 'curlErr'  => $curlErr
             ];
         }
+
+        $this->LogMessage(
+            'XXX_GoogleRequest response method=' . $method .
+                ' url=' . $url .
+                ' httpCode=' . $httpCode .
+                ' response=' . $response,
+            $httpCode === 200 ? KL_MESSAGE : KL_ERROR
+        );
 
         return [
             'httpCode' => $httpCode,
