@@ -62,6 +62,8 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterAttributeString('LastGoogleError', '');
         $this->RegisterAttributeString('DeviceCatalogJson', '{}');
         $this->RegisterAttributeString('VariableCatalogJson', '{}');
+        $this->RegisterAttributeString('KnownDeviceCategoryIdentsJson', '[]');
+        $this->RegisterAttributeString('KnownVariableCatalogKeysJson', '[]');
         // Viewer variables
         $this->RegisterVariableString('ViewerHTML', 'Viewer', '~HTMLBox', 10);
         $this->RegisterVariableString('StreamStatus', 'Stream Status', '', 20);
@@ -960,6 +962,8 @@ class NestCameraViewer extends IPSModuleStrict
         $devicesCategoryID = $this->EnsureDevicesCategory();
 
         $deviceCatalog = [];
+        $knownDeviceCategoryIdents = [];
+        $knownVariableCatalogKeys = [];
         $variableCatalog = json_decode($this->ReadAttributeString('VariableCatalogJson'), true);
         if (!is_array($variableCatalog)) {
             $variableCatalog = [];
@@ -968,6 +972,7 @@ class NestCameraViewer extends IPSModuleStrict
         foreach ($devices as $deviceName => $device) {
             $deviceCategoryID = $this->EnsureDeviceCategory($device, $devicesCategoryID);
             $deviceCategoryIdent = $this->BuildDeviceCategoryIdent($deviceName);
+            $knownDeviceCategoryIdents[] = $deviceCategoryIdent;
             $deviceShortId = $this->GetDeviceShortId($deviceName);
 
             $deviceCatalog[$deviceName] = [
@@ -995,8 +1000,9 @@ class NestCameraViewer extends IPSModuleStrict
                     $varIdent = $this->BuildVariableIdent($traitName, $fieldPath);
                     $fullKey = $traitName . '.' . $fieldPath;
                     $writableDef = $this->GetWritableDefinition($traitName, $fieldPath);
-
-                    $variableCatalog[$deviceCategoryIdent . '__' . $varIdent] = [
+                    $catalogKey = $deviceCategoryIdent . '__' . $varIdent;
+                    $knownVariableCatalogKeys[] = $catalogKey;
+                    $variableCatalog[$catalogKey] = [
                         'device_name'    => $deviceName,
                         'device_type'    => (string) ($device['type'] ?? ''),
                         'trait'          => $traitName,
@@ -1011,7 +1017,11 @@ class NestCameraViewer extends IPSModuleStrict
                 }
             }
         }
+        $this->CleanupObsoleteDevices($devicesCategoryID, $knownDeviceCategoryIdents);
+        $this->CleanupObsoleteVariables($variableCatalog, $knownVariableCatalogKeys);
 
+        $this->WriteAttributeString('KnownDeviceCategoryIdentsJson', json_encode(array_values(array_unique($knownDeviceCategoryIdents))));
+        $this->WriteAttributeString('KnownVariableCatalogKeysJson', json_encode(array_values(array_unique($knownVariableCatalogKeys))));
         $this->WriteAttributeString('DeviceCatalogJson', json_encode($deviceCatalog));
         $this->WriteAttributeString('VariableCatalogJson', json_encode($variableCatalog));
     }
@@ -1055,7 +1065,44 @@ class NestCameraViewer extends IPSModuleStrict
             }
         }
     }
+    private function CleanupObsoleteDevices(int $devicesCategoryID, array $knownDeviceCategoryIdents): void
+    {
+        $known = array_flip($knownDeviceCategoryIdents);
+        $children = IPS_GetChildrenIDs($devicesCategoryID);
 
+        foreach ($children as $childID) {
+            $obj = IPS_GetObject($childID);
+            $ident = (string) ($obj['ObjectIdent'] ?? '');
+
+            if ($ident === '') {
+                continue;
+            }
+
+            if (!isset($known[$ident])) {
+                IPS_DeleteCategory($childID);
+            }
+        }
+    }
+
+    private function CleanupObsoleteVariables(array $variableCatalog, array $knownVariableCatalogKeys): void
+    {
+        $known = array_flip($knownVariableCatalogKeys);
+
+        foreach ($variableCatalog as $catalogKey => $entry) {
+            if (isset($known[$catalogKey])) {
+                continue;
+            }
+
+            $objectID = (int) ($entry['object_id'] ?? 0);
+            if ($objectID > 0 && IPS_ObjectExists($objectID)) {
+                IPS_DeleteVariable($objectID);
+            }
+
+            unset($variableCatalog[$catalogKey]);
+        }
+
+        $this->WriteAttributeString('VariableCatalogJson', json_encode($variableCatalog));
+    }
     private function EnsureDevicesCategory(): int
     {
         $ident = 'Devices';
@@ -1074,7 +1121,7 @@ class NestCameraViewer extends IPSModuleStrict
     private function EnsureDeviceCategory(array $device, int $parentID): int
     {
         $deviceName = (string) ($device['raw']['name'] ?? '');
-        $label = (string) ($device['label'] ?? $this->GetDeviceShortId($deviceName));
+        $label = $this->BuildDeviceDisplayName($device);
         $ident = $this->BuildDeviceCategoryIdent($deviceName);
 
         $existing = @IPS_GetObjectIDByIdent($ident, $parentID);
@@ -1090,6 +1137,35 @@ class NestCameraViewer extends IPSModuleStrict
         return $catID;
     }
 
+    private function BuildDeviceDisplayName(array $device): string
+    {
+        $label = trim((string) ($device['label'] ?? ''));
+        if ($label !== '') {
+            return $label;
+        }
+
+        $type = (string) ($device['type'] ?? '');
+        $shortId = $this->GetDeviceShortId((string) ($device['raw']['name'] ?? ''));
+
+        if ($type !== '') {
+            $parts = explode('.', $type);
+            $typeShort = (string) end($parts);
+            return $typeShort . ' ' . $shortId;
+        }
+
+        return $shortId;
+    }
+
+    private function BuildVariableDisplayName(string $traitName, string $fieldPath): string
+    {
+        $traitShort = $this->GetTraitShortName($traitName);
+        $fieldLabel = str_replace(['.', '_'], ' ', $fieldPath);
+        $fieldLabel = ucwords($fieldLabel);
+
+        return $traitShort . ' - ' . $fieldLabel;
+    }
+
+
     private function EnsureDeviceVariable(int $parentID, string $traitName, string $fieldPath, $value): int
     {
         $ident = $this->BuildVariableIdent($traitName, $fieldPath);
@@ -1097,8 +1173,11 @@ class NestCameraViewer extends IPSModuleStrict
 
         $type = $this->DetectValueType($value);
         $variableType = $this->MapValueTypeToIPS($type);
+        $displayName = $this->BuildVariableDisplayName($traitName, $fieldPath);
 
         if ($existing !== false) {
+            IPS_SetName($existing, $displayName);
+            $this->ApplyVariableProfile($existing, $traitName, $fieldPath, $type);
             return $existing;
         }
 
@@ -1119,7 +1198,9 @@ class NestCameraViewer extends IPSModuleStrict
 
         IPS_SetParent($varID, $parentID);
         IPS_SetIdent($varID, $ident);
-        IPS_SetName($varID, $ident);
+        IPS_SetName($varID, $displayName);
+
+        $this->ApplyVariableProfile($varID, $traitName, $fieldPath, $type);
 
         return $varID;
     }
@@ -1231,6 +1312,35 @@ class NestCameraViewer extends IPSModuleStrict
                 return VARIABLETYPE_FLOAT;
             default:
                 return VARIABLETYPE_STRING;
+        }
+    }
+
+    private function ApplyVariableProfile(int $varID, string $traitName, string $fieldPath, string $type): void
+    {
+        $profile = '';
+
+        if ($fieldPath === 'ambientHumidityPercent') {
+            if ($type === 'integer') {
+                $profile = '~Humidity.100';
+            } elseif ($type === 'float') {
+                $profile = '~Humidity.F';
+            }
+        }
+
+        if (
+            $fieldPath === 'ambientTemperatureCelsius' ||
+            $fieldPath === 'coolCelsius' ||
+            $fieldPath === 'heatCelsius'
+        ) {
+            if ($type === 'float') {
+                $profile = '~Temperature';
+            }
+        }
+
+        if ($profile !== '') {
+            IPS_SetVariableCustomProfile($varID, $profile);
+        } else {
+            IPS_SetVariableCustomProfile($varID, '');
         }
     }
 
