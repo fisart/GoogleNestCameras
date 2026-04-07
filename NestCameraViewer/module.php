@@ -1499,6 +1499,17 @@ class NestCameraViewer extends IPSModuleStrict
         ];
     }
 
+    public function GetVariableCatalog(): string
+    {
+        return $this->ReadAttributeString('VariableCatalogJson');
+    }
+
+    public function GetDeviceCatalog(): string
+    {
+        return $this->ReadAttributeString('DeviceCatalogJson');
+    }
+
+
     public function RequestAction($Ident, $Value): void
     {
         $variableCatalog = json_decode($this->ReadAttributeString('VariableCatalogJson'), true);
