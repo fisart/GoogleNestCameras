@@ -9,6 +9,9 @@ class NestCameraViewer extends IPSModuleStrict
     private const STATUS_TOKEN_ERROR = 200;
     private const STATUS_NO_CAMERAS = 201;
     private const STATUS_GOOGLE_ERROR = 202;
+    private const WRITABLE_FIELDS = [
+        // Phase 1: noch keine Actions, nur Vorbereitung
+    ];
 
     public function Create(): void
     {
@@ -57,6 +60,8 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterAttributeString('OAuthLastState', '');
         $this->RegisterAttributeString('OAuthBootstrapCompleted', '0');
         $this->RegisterAttributeString('LastGoogleError', '');
+        $this->RegisterAttributeString('DeviceCatalogJson', '{}');
+        $this->RegisterAttributeString('VariableCatalogJson', '{}');
         // Viewer variables
         $this->RegisterVariableString('ViewerHTML', 'Viewer', '~HTMLBox', 10);
         $this->RegisterVariableString('StreamStatus', 'Stream Status', '', 20);
@@ -157,6 +162,8 @@ class NestCameraViewer extends IPSModuleStrict
         }
 
         $devices = $this->FetchDevices();
+        $this->SyncDeviceStructure($devices);
+        $this->UpdateDeviceValues($devices);
         if ($devices === null) {
             $detail = trim($this->ReadAttributeString('LastGoogleError'));
             $message = 'Google SDM request failed';
@@ -176,7 +183,8 @@ class NestCameraViewer extends IPSModuleStrict
             $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('No compatible WEB_RTC cameras found'));
             return;
         }
-
+        $this->SyncDeviceStructure($devices);
+        $this->UpdateDeviceValues($devices);
         if ($this->ReadPropertyString('SelectedDeviceName') === '__ALL__') {
             $this->RegisterGeneratedCameraHooks($devices);
         }
@@ -752,15 +760,7 @@ class NestCameraViewer extends IPSModuleStrict
             }
 
             $traits = $device['traits'] ?? [];
-            $live = $traits['sdm.devices.traits.CameraLiveStream'] ?? null;
-            if (!is_array($live)) {
-                continue;
-            }
 
-            $protocols = $live['supportedProtocols'] ?? [];
-            if (!is_array($protocols) || !in_array('WEB_RTC', $protocols, true)) {
-                continue;
-            }
 
             $label = trim((string) (($traits['sdm.devices.traits.Info']['customName'] ?? '') ?: ''));
             if ($label === '') {
@@ -777,6 +777,292 @@ class NestCameraViewer extends IPSModuleStrict
         $this->WriteAttributeString('CachedDevicesJson', json_encode($devices));
         return $devices;
     }
+
+    private function SyncDeviceStructure(array $devices): void
+    {
+        $devicesCategoryID = $this->EnsureDevicesCategory();
+
+        $deviceCatalog = [];
+        $variableCatalog = json_decode($this->ReadAttributeString('VariableCatalogJson'), true);
+        if (!is_array($variableCatalog)) {
+            $variableCatalog = [];
+        }
+
+        foreach ($devices as $deviceName => $device) {
+            $deviceCategoryID = $this->EnsureDeviceCategory($device, $devicesCategoryID);
+            $deviceCategoryIdent = $this->BuildDeviceCategoryIdent($deviceName);
+            $deviceShortId = $this->GetDeviceShortId($deviceName);
+
+            $deviceCatalog[$deviceName] = [
+                'device_name'     => $deviceName,
+                'device_id_short' => $deviceShortId,
+                'device_type'     => (string) ($device['type'] ?? ''),
+                'label'           => (string) ($device['label'] ?? $deviceShortId),
+                'category_ident'  => $deviceCategoryIdent,
+                'category_id'     => $deviceCategoryID
+            ];
+
+            $traits = $device['raw']['traits'] ?? [];
+            if (!is_array($traits)) {
+                continue;
+            }
+
+            foreach ($traits as $traitName => $traitData) {
+                if (!is_array($traitData)) {
+                    continue;
+                }
+
+                $flat = $this->FlattenArray($traitData);
+                foreach ($flat as $fieldPath => $value) {
+                    $varID = $this->EnsureDeviceVariable($deviceCategoryID, $traitName, $fieldPath, $value);
+                    $varIdent = $this->BuildVariableIdent($traitName, $fieldPath);
+                    $fullKey = $traitName . '.' . $fieldPath;
+                    $writableDef = $this->GetWritableDefinition($traitName, $fieldPath);
+
+                    $variableCatalog[$deviceCategoryIdent . '__' . $varIdent] = [
+                        'device_name'    => $deviceName,
+                        'device_type'    => (string) ($device['type'] ?? ''),
+                        'trait'          => $traitName,
+                        'field_path'     => $fieldPath,
+                        'full_key'       => $fullKey,
+                        'variable_ident' => $varIdent,
+                        'object_id'      => $varID,
+                        'value_type'     => $this->DetectValueType($value),
+                        'writable'       => $writableDef !== null,
+                        'command_key'    => $writableDef['command_key'] ?? null
+                    ];
+                }
+            }
+        }
+
+        $this->WriteAttributeString('DeviceCatalogJson', json_encode($deviceCatalog));
+        $this->WriteAttributeString('VariableCatalogJson', json_encode($variableCatalog));
+    }
+
+    private function UpdateDeviceValues(array $devices): void
+    {
+        $variableCatalog = json_decode($this->ReadAttributeString('VariableCatalogJson'), true);
+        if (!is_array($variableCatalog)) {
+            return;
+        }
+
+        foreach ($devices as $deviceName => $device) {
+            $traits = $device['raw']['traits'] ?? [];
+            if (!is_array($traits)) {
+                continue;
+            }
+
+            $deviceCategoryIdent = $this->BuildDeviceCategoryIdent($deviceName);
+
+            foreach ($traits as $traitName => $traitData) {
+                if (!is_array($traitData)) {
+                    continue;
+                }
+
+                $flat = $this->FlattenArray($traitData);
+                foreach ($flat as $fieldPath => $value) {
+                    $varIdent = $this->BuildVariableIdent($traitName, $fieldPath);
+                    $catalogKey = $deviceCategoryIdent . '__' . $varIdent;
+
+                    if (!isset($variableCatalog[$catalogKey]['object_id'])) {
+                        continue;
+                    }
+
+                    $varID = (int) $variableCatalog[$catalogKey]['object_id'];
+                    if ($varID <= 0 || !IPS_VariableExists($varID)) {
+                        continue;
+                    }
+
+                    $this->WriteValueToVariable($varID, $value);
+                }
+            }
+        }
+    }
+
+    private function EnsureDevicesCategory(): int
+    {
+        $ident = 'Devices';
+        $existing = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        if ($existing !== false) {
+            return $existing;
+        }
+
+        $catID = IPS_CreateCategory();
+        IPS_SetParent($catID, $this->InstanceID);
+        IPS_SetIdent($catID, $ident);
+        IPS_SetName($catID, 'Devices');
+        return $catID;
+    }
+
+    private function EnsureDeviceCategory(array $device, int $parentID): int
+    {
+        $deviceName = (string) ($device['raw']['name'] ?? '');
+        $label = (string) ($device['label'] ?? $this->GetDeviceShortId($deviceName));
+        $ident = $this->BuildDeviceCategoryIdent($deviceName);
+
+        $existing = @IPS_GetObjectIDByIdent($ident, $parentID);
+        if ($existing !== false) {
+            IPS_SetName($existing, $label);
+            return $existing;
+        }
+
+        $catID = IPS_CreateCategory();
+        IPS_SetParent($catID, $parentID);
+        IPS_SetIdent($catID, $ident);
+        IPS_SetName($catID, $label);
+        return $catID;
+    }
+
+    private function EnsureDeviceVariable(int $parentID, string $traitName, string $fieldPath, $value): int
+    {
+        $ident = $this->BuildVariableIdent($traitName, $fieldPath);
+        $existing = @IPS_GetObjectIDByIdent($ident, $parentID);
+
+        $type = $this->DetectValueType($value);
+        $variableType = $this->MapValueTypeToIPS($type);
+
+        if ($existing !== false) {
+            return $existing;
+        }
+
+        switch ($variableType) {
+            case VARIABLETYPE_BOOLEAN:
+                $varID = IPS_CreateVariable(VARIABLETYPE_BOOLEAN);
+                break;
+            case VARIABLETYPE_INTEGER:
+                $varID = IPS_CreateVariable(VARIABLETYPE_INTEGER);
+                break;
+            case VARIABLETYPE_FLOAT:
+                $varID = IPS_CreateVariable(VARIABLETYPE_FLOAT);
+                break;
+            default:
+                $varID = IPS_CreateVariable(VARIABLETYPE_STRING);
+                break;
+        }
+
+        IPS_SetParent($varID, $parentID);
+        IPS_SetIdent($varID, $ident);
+        IPS_SetName($varID, $ident);
+
+        return $varID;
+    }
+
+    private function WriteValueToVariable(int $varID, $value): void
+    {
+        $var = IPS_GetVariable($varID);
+        $type = $var['VariableType'];
+
+        if (is_array($value)) {
+            $value = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+
+        switch ($type) {
+            case VARIABLETYPE_BOOLEAN:
+                SetValueBoolean($varID, (bool) $value);
+                break;
+            case VARIABLETYPE_INTEGER:
+                SetValueInteger($varID, (int) $value);
+                break;
+            case VARIABLETYPE_FLOAT:
+                SetValueFloat($varID, (float) $value);
+                break;
+            default:
+                SetValueString($varID, (string) $value);
+                break;
+        }
+    }
+
+    private function GetDeviceShortId(string $deviceName): string
+    {
+        $parts = explode('/devices/', $deviceName);
+        return $parts[1] ?? md5($deviceName);
+    }
+
+    private function BuildDeviceCategoryIdent(string $deviceName): string
+    {
+        return 'Device_' . $this->SanitizeIdent($this->GetDeviceShortId($deviceName));
+    }
+
+    private function GetTraitShortName(string $traitName): string
+    {
+        $parts = explode('.', $traitName);
+        return (string) (end($parts) ?: $traitName);
+    }
+
+    private function BuildVariableIdent(string $traitName, string $fieldPath): string
+    {
+        $traitShort = $this->GetTraitShortName($traitName);
+        $fieldPart = str_replace(['.', ' '], '_', $fieldPath);
+        return $this->SanitizeIdent($traitShort . '_' . $fieldPart);
+    }
+
+    private function SanitizeIdent(string $value): string
+    {
+        $value = preg_replace('/[^A-Za-z0-9_]/', '_', $value);
+        $value = preg_replace('/_+/', '_', (string) $value);
+        return trim((string) $value, '_');
+    }
+
+    private function FlattenArray(array $input, string $prefix = ''): array
+    {
+        $result = [];
+
+        foreach ($input as $key => $value) {
+            $path = $prefix === '' ? (string) $key : $prefix . '.' . $key;
+
+            if (is_array($value)) {
+                if ($this->IsAssoc($value)) {
+                    $result += $this->FlattenArray($value, $path);
+                } else {
+                    $result[$path] = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                }
+            } else {
+                $result[$path] = $value;
+            }
+        }
+
+        return $result;
+    }
+
+    private function IsAssoc(array $array): bool
+    {
+        return array_keys($array) !== range(0, count($array) - 1);
+    }
+
+    private function DetectValueType($value): string
+    {
+        if (is_bool($value)) {
+            return 'boolean';
+        }
+        if (is_int($value)) {
+            return 'integer';
+        }
+        if (is_float($value)) {
+            return 'float';
+        }
+        return 'string';
+    }
+
+    private function MapValueTypeToIPS(string $type): int
+    {
+        switch ($type) {
+            case 'boolean':
+                return VARIABLETYPE_BOOLEAN;
+            case 'integer':
+                return VARIABLETYPE_INTEGER;
+            case 'float':
+                return VARIABLETYPE_FLOAT;
+            default:
+                return VARIABLETYPE_STRING;
+        }
+    }
+
+    private function GetWritableDefinition(string $traitName, string $fieldPath): ?array
+    {
+        $key = $traitName . '.' . $fieldPath;
+        return self::WRITABLE_FIELDS[$key] ?? null;
+    }
+
 
     private function GetCachedDevices(): array
     {
