@@ -288,7 +288,20 @@ class NestCameraViewer extends IPSModuleStrict
         $hookPath = '/hook/' . $this->NormalizeHookName($this->ReadPropertyString('HookName'));
 
         $isMaster = $this->ReadPropertyBoolean('IsTokenMaster');
+$deviceCatalog = json_decode($this->ReadAttributeString('DeviceCatalogJson'), true);
+if (!is_array($deviceCatalog)) {
+    $deviceCatalog = [];
+}
 
+$deviceRows = [];
+foreach ($deviceCatalog as $entry) {
+    $deviceRows[] = [
+        'Label'      => (string) ($entry['label'] ?? ''),
+        'Type'       => (string) ($entry['device_type'] ?? ''),
+        'DeviceName' => (string) ($entry['device_name'] ?? ''),
+        'CategoryID' => (int) ($entry['category_id'] ?? 0)
+    ];
+}
         $form['elements'] = [
             [
                 'type'    => 'Label',
@@ -491,6 +504,47 @@ class NestCameraViewer extends IPSModuleStrict
                     ]
                 ]
             ]
+            [
+    'type'    => 'ExpansionPanel',
+    'caption' => 'Discovered Devices',
+    'items'   => [
+        [
+            'type'    => 'List',
+            'name'    => 'DiscoveredDevices',
+            'caption' => 'Devices found in Google SDM',
+            'rowCount'=> 10,
+            'add'     => false,
+            'delete'  => false,
+            'sort'    => [
+                'column'    => 'Label',
+                'direction' => 'ascending'
+            ],
+            'columns' => [
+                [
+                    'name'    => 'Label',
+                    'caption' => 'Name',
+                    'width'   => '200px'
+                ],
+                [
+                    'name'    => 'Type',
+                    'caption' => 'Type',
+                    'width'   => '220px'
+                ],
+                [
+                    'name'    => 'DeviceName',
+                    'caption' => 'Google Device Name',
+                    'width'   => '400px'
+                ],
+                [
+                    'name'    => 'CategoryID',
+                    'caption' => 'Category ID',
+                    'width'   => '100px'
+                ]
+            ],
+            'values'  => $deviceRows
+        ]
+    ]
+],
         ];
 
         $form['actions'] = [
