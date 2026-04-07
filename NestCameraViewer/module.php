@@ -1339,7 +1339,7 @@ class NestCameraViewer extends IPSModuleStrict
 
         if ($fieldPath === 'ambientHumidityPercent') {
             if ($type === 'integer') {
-                $profile = '~Humidity.100';
+                $profile = '~Humidity';
             } elseif ($type === 'float') {
                 $profile = '~Humidity.F';
             }
