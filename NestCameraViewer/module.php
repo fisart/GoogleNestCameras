@@ -203,14 +203,37 @@ class NestCameraViewer extends IPSModuleStrict
 
     public function GetConfigurationForm(): string
     {
-        $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
-        if (!is_array($form)) {
-            $form = [
-                'elements' => [],
-                'actions'  => [],
-                'status'   => []
-            ];
-        }
+        $form = [
+            'elements' => [],
+            'actions'  => [],
+            'status'   => [
+                [
+                    'code'    => self::STATUS_CREATING,
+                    'icon'    => 'active',
+                    'caption' => 'Creating instance'
+                ],
+                [
+                    'code'    => self::STATUS_ACTIVE,
+                    'icon'    => 'active',
+                    'caption' => 'Active'
+                ],
+                [
+                    'code'    => self::STATUS_TOKEN_ERROR,
+                    'icon'    => 'error',
+                    'caption' => 'Token or OAuth configuration missing'
+                ],
+                [
+                    'code'    => self::STATUS_NO_CAMERAS,
+                    'icon'    => 'error',
+                    'caption' => 'No compatible WEB_RTC cameras found for viewer'
+                ],
+                [
+                    'code'    => self::STATUS_GOOGLE_ERROR,
+                    'icon'    => 'error',
+                    'caption' => 'Google SDM request failed'
+                ]
+            ]
+        ];
 
         $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
         $currentSelectedDevice = $this->ReadPropertyString('SelectedDeviceName');
@@ -231,14 +254,16 @@ class NestCameraViewer extends IPSModuleStrict
                 'value'   => ''
             ],
             [
-                'caption' => 'All',
+                'caption' => 'All viewer camera hooks',
                 'value'   => '__ALL__'
             ]
         ];
 
         foreach ($devices as $deviceName => $device) {
+            $label = (string) ($device['label'] ?? $deviceName);
+            $type  = (string) ($device['type'] ?? '');
             $deviceOptions[] = [
-                'caption' => $device['label'],
+                'caption' => $label . ($type !== '' ? ' [' . $type . ']' : ''),
                 'value'   => $deviceName
             ];
         }
@@ -262,119 +287,217 @@ class NestCameraViewer extends IPSModuleStrict
 
         $hookPath = '/hook/' . $this->NormalizeHookName($this->ReadPropertyString('HookName'));
 
+        $isMaster = $this->ReadPropertyBoolean('IsTokenMaster');
+
         $form['elements'] = [
             [
                 'type'    => 'Label',
-                'caption' => 'Bootstrap-Schritte (nur Master): 1) OAuth-Felder unten ausfüllen. 2) "Save OAuth Setup to Local Vault" klicken. 3) "Generate Authorization URL" klicken. 4) URL in normalem Browser öffnen. 5) Google-Login/Consent durchführen. 6) Wert hinter code= aus der Rückgabe-URL kopieren. 7) In "Bootstrap Authorization Code" einfügen. 8) "Exchange Authorization Code" klicken. 9) RefreshToken und AccessToken werden in Variablen unter dieser Instanz gespeichert.'
-            ],
-            [
-                'type'    => 'SelectInstance',
-                'name'    => 'VaultInstanceID',
-                'caption' => 'Vault Instance'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'ViewerAuthIdent',
-                'caption' => 'Viewer Auth Ident'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'OAuthConnectionIdent',
-                'caption' => 'OAuth Connection Ident'
-            ],
-            [
-                'type'    => 'CheckBox',
-                'name'    => 'IsTokenMaster',
-                'caption' => 'This instance is Token Master'
-            ],
-            [
-                'type'    => 'SelectVariable',
-                'name'    => 'ExternalAccessTokenVariableID',
-                'caption' => 'External Access Token Variable (slave mode)'
-            ],
-            [
-                'type'    => 'SelectVariable',
-                'name'    => 'ExternalRefreshTokenVariableID',
-                'caption' => 'External Refresh Token Variable (slave mode)'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'OAuthSetupConnectionName',
-                'caption' => 'OAuth Connection Name'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'OAuthSetupProjectID',
-                'caption' => 'OAuth Project ID'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'OAuthSetupEnterpriseID',
-                'caption' => 'OAuth Enterprise ID'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'OAuthSetupClientID',
-                'caption' => 'OAuth Client ID'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'OAuthSetupClientSecret',
-                'caption' => 'OAuth Client Secret'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'OAuthSetupRedirectURI',
-                'caption' => 'OAuth Redirect URI'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'OAuthSetupScope',
-                'caption' => 'OAuth Scope'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'BootstrapAuthorizationCode',
-                'caption' => 'Bootstrap Authorization Code'
-            ],
-            [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'HookName',
-                'caption' => 'Hook Name'
-            ],
-            [
-                'type'    => 'Select',
-                'name'    => 'AuthMode',
-                'caption' => 'WebHook Protection',
-                'options' => [
-                    ['caption' => 'No password',              'value' => 0],
-                    ['caption' => 'Vault / WebHook password', 'value' => 1],
-                    ['caption' => 'Passkey',                  'value' => 2]
-                ]
-            ],
-            [
-                'type'    => 'Select',
-                'name'    => 'SelectedDeviceName',
-                'caption' => 'Camera',
-                'options' => $deviceOptions
-            ],
-            [
-                'type'    => 'CheckBox',
-                'name'    => 'AutoExtend',
-                'caption' => 'Auto Extend Stream'
-            ],
-            [
-                'type'    => 'CheckBox',
-                'name'    => 'Debug',
-                'caption' => 'Show Debug in Viewer'
+                'caption' => 'Google SDM Device Module'
             ],
             [
                 'type'    => 'Label',
-                'caption' => 'Hook URL: ' . $hookPath
+                'caption' => 'This module can discover all Google SDM devices. The HTML viewer remains camera-specific and only works for WEB_RTC capable camera devices.'
+            ],
+
+            [
+                'type'    => 'ExpansionPanel',
+                'caption' => 'General Configuration',
+                'items'   => [
+                    [
+                        'type'    => 'SelectInstance',
+                        'name'    => 'VaultInstanceID',
+                        'caption' => 'Vault Instance'
+                    ],
+                    [
+                        'type'    => 'ValidationTextBox',
+                        'name'    => 'ViewerAuthIdent',
+                        'caption' => 'Viewer Auth Ident'
+                    ],
+                    [
+                        'type'    => 'ValidationTextBox',
+                        'name'    => 'OAuthConnectionIdent',
+                        'caption' => 'Local OAuth Record Path'
+                    ],
+                    [
+                        'type'    => 'ValidationTextBox',
+                        'name'    => 'HookName',
+                        'caption' => 'Viewer Hook Name'
+                    ],
+                    [
+                        'type'    => 'Select',
+                        'name'    => 'AuthMode',
+                        'caption' => 'Viewer WebHook Protection',
+                        'options' => [
+                            ['caption' => 'No password',              'value' => 0],
+                            ['caption' => 'Vault / WebHook password', 'value' => 1],
+                            ['caption' => 'Passkey',                  'value' => 2]
+                        ]
+                    ],
+                    [
+                        'type'    => 'CheckBox',
+                        'name'    => 'AutoExtend',
+                        'caption' => 'Auto Extend Camera Stream'
+                    ],
+                    [
+                        'type'    => 'CheckBox',
+                        'name'    => 'Debug',
+                        'caption' => 'Show Debug Information in Viewer'
+                    ],
+                    [
+                        'type'    => 'Label',
+                        'caption' => 'Viewer Hook URL: ' . $hookPath
+                    ]
+                ]
+            ],
+
+            [
+                'type'    => 'ExpansionPanel',
+                'caption' => 'Token Role',
+                'items'   => [
+                    [
+                        'type'    => 'CheckBox',
+                        'name'    => 'IsTokenMaster',
+                        'caption' => 'This instance is Token Master'
+                    ],
+                    [
+                        'type'    => 'Label',
+                        'caption' => $isMaster
+                            ? 'Master mode: this instance creates the authorization URL, exchanges the authorization code, stores RefreshToken locally and refreshes AccessToken locally.'
+                            : 'Slave mode: this instance does not generate tokens. It reads external RefreshToken and AccessToken variables from the object tree.'
+                    ],
+                    [
+                        'type'    => 'SelectVariable',
+                        'name'    => 'ExternalAccessTokenVariableID',
+                        'caption' => 'External Access Token Variable (slave mode)'
+                    ],
+                    [
+                        'type'    => 'SelectVariable',
+                        'name'    => 'ExternalRefreshTokenVariableID',
+                        'caption' => 'External Refresh Token Variable (slave mode)'
+                    ]
+                ]
+            ],
+
+            [
+                'type'    => 'ExpansionPanel',
+                'caption' => 'Local OAuth Configuration',
+                'items'   => [
+                    [
+                        'type'    => 'Label',
+                        'caption' => 'These values are written to the local vault record. They are static connection settings, not runtime tokens.'
+                    ],
+                    [
+                        'type'    => 'ValidationTextBox',
+                        'name'    => 'OAuthSetupConnectionName',
+                        'caption' => 'Connection Name'
+                    ],
+                    [
+                        'type'    => 'ValidationTextBox',
+                        'name'    => 'OAuthSetupProjectID',
+                        'caption' => 'Project ID'
+                    ],
+                    [
+                        'type'    => 'ValidationTextBox',
+                        'name'    => 'OAuthSetupEnterpriseID',
+                        'caption' => 'Enterprise ID'
+                    ],
+                    [
+                        'type'    => 'ValidationTextBox',
+                        'name'    => 'OAuthSetupClientID',
+                        'caption' => 'Client ID'
+                    ],
+                    [
+                        'type'    => 'ValidationTextBox',
+                        'name'    => 'OAuthSetupClientSecret',
+                        'caption' => 'Client Secret'
+                    ],
+                    [
+                        'type'    => 'ValidationTextBox',
+                        'name'    => 'OAuthSetupRedirectURI',
+                        'caption' => 'Redirect URI'
+                    ],
+                    [
+                        'type'    => 'ValidationTextBox',
+                        'name'    => 'OAuthSetupScope',
+                        'caption' => 'OAuth Scope'
+                    ]
+                ]
+            ],
+
+            [
+                'type'    => 'ExpansionPanel',
+                'caption' => 'Bootstrap (Master Only)',
+                'items'   => [
+                    [
+                        'type'    => 'Label',
+                        'caption' => '1) Fill in the OAuth fields above.'
+                    ],
+                    [
+                        'type'    => 'Label',
+                        'caption' => '2) Click "Save OAuth Setup to Local Vault".'
+                    ],
+                    [
+                        'type'    => 'Label',
+                        'caption' => '3) Click "Generate Authorization URL".'
+                    ],
+                    [
+                        'type'    => 'Label',
+                        'caption' => '4) Open the generated URL in a normal browser and complete Google consent.'
+                    ],
+                    [
+                        'type'    => 'Label',
+                        'caption' => '5) Paste the full returned URL or only the value after code= into the field below.'
+                    ],
+                    [
+                        'type'    => 'Label',
+                        'caption' => '6) Click "Exchange Authorization Code". RefreshToken, AccessToken and AccessTokenExpiresAt will be stored below the master instance.'
+                    ],
+                    [
+                        'type'    => 'ValidationTextBox',
+                        'name'    => 'BootstrapAuthorizationCode',
+                        'caption' => 'Returned Browser URL or Authorization Code'
+                    ]
+                ]
+            ],
+
+            [
+                'type'    => 'ExpansionPanel',
+                'caption' => 'Camera Viewer',
+                'items'   => [
+                    [
+                        'type'    => 'Label',
+                        'caption' => 'The HTML viewer is camera-specific. It only applies to devices that support WEB_RTC live streaming.'
+                    ],
+                    [
+                        'type'    => 'Select',
+                        'name'    => 'SelectedDeviceName',
+                        'caption' => 'Viewer Device',
+                        'options' => $deviceOptions
+                    ]
+                ]
+            ],
+
+            [
+                'type'    => 'ExpansionPanel',
+                'caption' => 'Device Synchronization',
+                'items'   => [
+                    [
+                        'type'    => 'Label',
+                        'caption' => 'All Google SDM devices are discovered and synchronized into categories and variables below this instance.'
+                    ],
+                    [
+                        'type'    => 'Label',
+                        'caption' => 'The generated object tree is independent from the camera viewer selection above.'
+                    ]
+                ]
             ]
         ];
 
         $form['actions'] = [
+            [
+                'type'    => 'Label',
+                'caption' => 'Maintenance'
+            ],
             [
                 'type'    => 'Button',
                 'caption' => 'Save OAuth Setup to Local Vault',
@@ -392,12 +515,12 @@ class NestCameraViewer extends IPSModuleStrict
             ],
             [
                 'type'    => 'Button',
-                'caption' => 'Refresh device list',
+                'caption' => 'Refresh Google SDM Devices',
                 'onClick' => 'NESTCAM_RefreshDevices($id);'
             ],
             [
                 'type'    => 'Button',
-                'caption' => 'Rebuild viewer HTML',
+                'caption' => 'Rebuild Camera Viewer HTML',
                 'onClick' => 'NESTCAM_RebuildViewer($id);'
             ]
         ];
