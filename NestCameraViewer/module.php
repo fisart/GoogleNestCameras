@@ -1007,8 +1007,8 @@ class NestCameraViewer extends IPSModuleStrict
 
                 $flat = $this->FlattenArray($traitData);
                 foreach ($flat as $fieldPath => $value) {
-                    $varID = $this->EnsureDeviceVariable($deviceCategoryID, $traitName, $fieldPath, $value);
-                    $varIdent = $this->BuildVariableIdent($traitName, $fieldPath);
+                    $varID = $this->EnsureDeviceVariable($deviceName, $deviceCategoryID, $traitName, $fieldPath, $value);
+                    $varIdent = $this->BuildVariableIdent($deviceName, $traitName, $fieldPath);
                     $fullKey = $traitName . '.' . $fieldPath;
                     $writableDef = $this->GetWritableDefinition($traitName, $fieldPath);
                     $catalogKey = $deviceCategoryIdent . '__' . $varIdent;
@@ -1059,7 +1059,7 @@ class NestCameraViewer extends IPSModuleStrict
 
                 $flat = $this->FlattenArray($traitData);
                 foreach ($flat as $fieldPath => $value) {
-                    $varIdent = $this->BuildVariableIdent($traitName, $fieldPath);
+                    $varIdent = $this->BuildVariableIdent($deviceName, $traitName, $fieldPath);
                     $catalogKey = $deviceCategoryIdent . '__' . $varIdent;
 
                     if (!isset($variableCatalog[$catalogKey]['object_id'])) {
@@ -1177,22 +1177,20 @@ class NestCameraViewer extends IPSModuleStrict
     }
 
 
-    private function EnsureDeviceVariable(int $parentID, string $traitName, string $fieldPath, $value): int
+    private function EnsureDeviceVariable(string $deviceName, int $parentID, string $traitName, string $fieldPath, $value): int
     {
-        $ident = $this->BuildVariableIdent($traitName, $fieldPath);
+        $ident = $this->BuildVariableIdent($deviceName, $traitName, $fieldPath);
         $existing = @IPS_GetObjectIDByIdent($ident, $parentID);
 
         $type = $this->DetectValueType($value);
         $variableType = $this->MapValueTypeToIPS($type);
         $displayName = $this->BuildVariableDisplayName($traitName, $fieldPath);
+        $writableDef = $this->GetWritableDefinition($traitName, $fieldPath);
 
         if ($existing !== false) {
             IPS_SetName($existing, $displayName);
             $this->ApplyVariableProfile($existing, $traitName, $fieldPath, $type);
-            $writableDef = $this->GetWritableDefinition($traitName, $fieldPath);
-            if ($writableDef !== null) {
-                $this->EnableAction($ident);
-            }
+            IPS_SetVariableCustomAction($existing, $writableDef !== null ? $this->InstanceID : 0);
             return $existing;
         }
 
@@ -1216,10 +1214,8 @@ class NestCameraViewer extends IPSModuleStrict
         IPS_SetName($varID, $displayName);
 
         $this->ApplyVariableProfile($varID, $traitName, $fieldPath, $type);
-        $writableDef = $this->GetWritableDefinition($traitName, $fieldPath);
-        if ($writableDef !== null) {
-            $this->EnableAction($ident);
-        }
+        IPS_SetVariableCustomAction($varID, $writableDef !== null ? $this->InstanceID : 0);
+
         return $varID;
     }
 
@@ -1265,12 +1261,18 @@ class NestCameraViewer extends IPSModuleStrict
         return (string) (end($parts) ?: $traitName);
     }
 
-    private function BuildVariableIdent(string $traitName, string $fieldPath): string
+    private function BuildVariableIdent(string $deviceName, string $traitName, string $fieldPath): string
     {
+        $deviceShort = $this->GetDeviceShortId($deviceName);
         $traitShort = $this->GetTraitShortName($traitName);
         $fieldPart = str_replace(['.', ' '], '_', $fieldPath);
-        return $this->SanitizeIdent($traitShort . '_' . $fieldPart);
+
+        return $this->SanitizeIdent($deviceShort . '__' . $traitShort . '_' . $fieldPart);
     }
+
+
+
+
 
     private function SanitizeIdent(string $value): string
     {
@@ -1522,7 +1524,7 @@ class NestCameraViewer extends IPSModuleStrict
             if (!is_array($candidate)) {
                 continue;
             }
-            if (($candidate['variable_ident'] ?? '') === $Ident) {
+            if ((string) ($candidate['variable_ident'] ?? '') === $Ident) {
                 $entry = $candidate;
                 break;
             }
