@@ -10,7 +10,18 @@ class NestCameraViewer extends IPSModuleStrict
     private const STATUS_NO_CAMERAS = 201;
     private const STATUS_GOOGLE_ERROR = 202;
     private const WRITABLE_FIELDS = [
-        // Phase 1: noch keine Actions, nur Vorbereitung
+        'sdm.devices.traits.ThermostatMode.mode' => [
+            'command_key' => 'ThermostatMode.SetMode',
+            'value_type'  => 'string'
+        ],
+        'sdm.devices.traits.ThermostatTemperatureSetpoint.coolCelsius' => [
+            'command_key' => 'ThermostatTemperatureSetpoint.SetCool',
+            'value_type'  => 'float'
+        ],
+        'sdm.devices.traits.ThermostatTemperatureSetpoint.heatCelsius' => [
+            'command_key' => 'ThermostatTemperatureSetpoint.SetHeat',
+            'value_type'  => 'float'
+        ]
     ];
 
     public function Create(): void
@@ -1178,6 +1189,10 @@ class NestCameraViewer extends IPSModuleStrict
         if ($existing !== false) {
             IPS_SetName($existing, $displayName);
             $this->ApplyVariableProfile($existing, $traitName, $fieldPath, $type);
+            $writableDef = $this->GetWritableDefinition($traitName, $fieldPath);
+            if ($writableDef !== null) {
+                $this->EnableAction($ident);
+            }
             return $existing;
         }
 
@@ -1201,7 +1216,10 @@ class NestCameraViewer extends IPSModuleStrict
         IPS_SetName($varID, $displayName);
 
         $this->ApplyVariableProfile($varID, $traitName, $fieldPath, $type);
-
+        $writableDef = $this->GetWritableDefinition($traitName, $fieldPath);
+        if ($writableDef !== null) {
+            $this->EnableAction($ident);
+        }
         return $varID;
     }
 
@@ -1336,7 +1354,17 @@ class NestCameraViewer extends IPSModuleStrict
                 $profile = '~Temperature';
             }
         }
-
+        if ($traitName === 'sdm.devices.traits.ThermostatMode' && $fieldPath === 'mode') {
+            $profileName = 'NESTCAM.ThermostatMode';
+            if (!IPS_VariableProfileExists($profileName)) {
+                IPS_CreateVariableProfile($profileName, VARIABLETYPE_STRING);
+                IPS_SetVariableProfileAssociation($profileName, 'HEAT', 'HEAT', '', -1);
+                IPS_SetVariableProfileAssociation($profileName, 'COOL', 'COOL', '', -1);
+                IPS_SetVariableProfileAssociation($profileName, 'HEATCOOL', 'HEATCOOL', '', -1);
+                IPS_SetVariableProfileAssociation($profileName, 'OFF', 'OFF', '', -1);
+            }
+            $profile = $profileName;
+        }
         if ($profile !== '') {
             IPS_SetVariableCustomProfile($varID, $profile);
         } else {
@@ -1471,7 +1499,66 @@ class NestCameraViewer extends IPSModuleStrict
         ];
     }
 
+    public function RequestAction($Ident, $Value): void
+    {
+        $variableCatalog = json_decode($this->ReadAttributeString('VariableCatalogJson'), true);
+        if (!is_array($variableCatalog)) {
+            throw new Exception('Variable catalog is invalid');
+        }
 
+        $entry = null;
+        foreach ($variableCatalog as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+            if (($candidate['variable_ident'] ?? '') === $Ident) {
+                $entry = $candidate;
+                break;
+            }
+        }
+
+        if ($entry === null) {
+            throw new Exception('Unknown variable ident: ' . $Ident);
+        }
+
+        if (!($entry['writable'] ?? false)) {
+            throw new Exception('Variable is read-only: ' . $Ident);
+        }
+
+        $deviceName = (string) ($entry['device_name'] ?? '');
+        $commandKey = (string) ($entry['command_key'] ?? '');
+        $traitName  = (string) ($entry['trait'] ?? '');
+        $fieldPath  = (string) ($entry['field_path'] ?? '');
+
+        if ($deviceName === '' || $commandKey === '') {
+            throw new Exception('Writable mapping is incomplete for: ' . $Ident);
+        }
+
+        $payload = $this->BuildCommandPayload($deviceName, $commandKey, $Value);
+
+        $result = $this->GoogleRequest(
+            'https://smartdevicemanagement.googleapis.com/v1/' . $deviceName . ':executeCommand',
+            'POST',
+            $payload
+        );
+
+        if (($result['httpCode'] ?? 0) !== 200) {
+            throw new Exception('Command failed: ' . (string) ($result['response'] ?? ''));
+        }
+
+        $objectID = (int) ($entry['object_id'] ?? 0);
+        if ($objectID > 0 && IPS_VariableExists($objectID)) {
+            $this->WriteValueToVariable($objectID, $Value);
+        }
+
+        $this->LogMessage(
+            'RequestAction success ident=' . $Ident .
+                ' trait=' . $traitName .
+                ' field=' . $fieldPath .
+                ' value=' . json_encode($Value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            KL_MESSAGE
+        );
+    }
     public function SaveOAuthSetupToLocalVault(): void
     {
         $vaultID = $this->ReadPropertyInteger('VaultInstanceID');
@@ -1632,6 +1719,37 @@ class NestCameraViewer extends IPSModuleStrict
         echo 'Authorization code exchanged successfully';
     }
 
+    private function BuildCommandPayload(string $deviceName, string $commandKey, $value): array
+    {
+        switch ($commandKey) {
+            case 'ThermostatMode.SetMode':
+                return [
+                    'command' => 'sdm.devices.commands.ThermostatMode.SetMode',
+                    'params'  => [
+                        'mode' => (string) $value
+                    ]
+                ];
+
+            case 'ThermostatTemperatureSetpoint.SetCool':
+                return [
+                    'command' => 'sdm.devices.commands.ThermostatTemperatureSetpoint.SetCool',
+                    'params'  => [
+                        'coolCelsius' => (float) $value
+                    ]
+                ];
+
+            case 'ThermostatTemperatureSetpoint.SetHeat':
+                return [
+                    'command' => 'sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat',
+                    'params'  => [
+                        'heatCelsius' => (float) $value
+                    ]
+                ];
+
+            default:
+                throw new Exception('Unsupported command key: ' . $commandKey);
+        }
+    }
 
     private function StoreMasterTokens(string $refreshToken, string $accessToken, int $expiresIn): void
     {
