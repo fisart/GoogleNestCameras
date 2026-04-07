@@ -55,7 +55,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterPropertyBoolean('IsTokenMaster', false);
         $this->RegisterPropertyInteger('ExternalAccessTokenVariableID', 0);
         $this->RegisterPropertyInteger('ExternalRefreshTokenVariableID', 0);
-        $this->RegisterPropertyInteger('ExternalRefreshTokenVariableID', 0);
+
         // WebHook protection
         $this->RegisterPropertyInteger('AuthMode', 0);
         $this->RegisterPropertyBoolean('AutoExtend', true);
