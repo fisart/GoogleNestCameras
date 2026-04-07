@@ -55,7 +55,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterPropertyBoolean('IsTokenMaster', false);
         $this->RegisterPropertyInteger('ExternalAccessTokenVariableID', 0);
         $this->RegisterPropertyInteger('ExternalRefreshTokenVariableID', 0);
-
+        $this->RegisterPropertyInteger('ExternalRefreshTokenVariableID', 0);
         // WebHook protection
         $this->RegisterPropertyInteger('AuthMode', 0);
         $this->RegisterPropertyBoolean('AutoExtend', true);
@@ -75,6 +75,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterAttributeString('VariableCatalogJson', '{}');
         $this->RegisterAttributeString('KnownDeviceCategoryIdentsJson', '[]');
         $this->RegisterAttributeString('KnownVariableCatalogKeysJson', '[]');
+        $this->RegisterAttributeInteger('ManagedActionScriptID', 0);
         // Viewer variables
         $this->RegisterVariableString('ViewerHTML', 'Viewer', '~HTMLBox', 10);
         $this->RegisterVariableString('StreamStatus', 'Stream Status', '', 20);
@@ -91,7 +92,13 @@ class NestCameraViewer extends IPSModuleStrict
     public function ApplyChanges(): void
     {
         parent::ApplyChanges();
-
+        $managedActionScriptID = $this->EnsureManagedActionScript();
+        if ($managedActionScriptID <= 0 || !IPS_ScriptExists($managedActionScriptID)) {
+            $this->SetStatus(self::STATUS_TOKEN_ERROR);
+            $this->SetValue('StreamStatus', 'Managed action script could not be created');
+            $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('Managed action script could not be created'));
+            return;
+        }
         $hookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
         $oldHookName = $this->ReadAttributeString('RegisteredHookName');
 
@@ -1176,6 +1183,70 @@ class NestCameraViewer extends IPSModuleStrict
         return $traitShort . ' - ' . $fieldLabel;
     }
 
+    private function UpdateManagedActionScript(int $scriptID): void
+    {
+        $code = "<?php\n"
+            . "declare(strict_types=1);\n\n"
+            . "\$instanceID = " . $this->InstanceID . ";\n\n"
+            . "if (!isset(\$_IPS['VARIABLE']) || !array_key_exists('VALUE', \$_IPS)) {\n"
+            . "    IPS_LogMessage('NestCameraViewer_ActionProxy', 'Missing VARIABLE or VALUE in \$_IPS');\n"
+            . "    return;\n"
+            . "}\n\n"
+            . "\$variableID = (int) \$_IPS['VARIABLE'];\n"
+            . "\$value      = \$_IPS['VALUE'];\n\n"
+            . "if (!IPS_VariableExists(\$variableID)) {\n"
+            . "    IPS_LogMessage('NestCameraViewer_ActionProxy', 'Variable does not exist: ' . \$variableID);\n"
+            . "    return;\n"
+            . "}\n\n"
+            . "if (!IPS_InstanceExists(\$instanceID)) {\n"
+            . "    IPS_LogMessage('NestCameraViewer_ActionProxy', 'Instance does not exist: ' . \$instanceID);\n"
+            . "    return;\n"
+            . "}\n\n"
+            . "\$ident = IPS_GetObject(\$variableID)['ObjectIdent'] ?? '';\n"
+            . "if (!is_string(\$ident) || \$ident === '') {\n"
+            . "    IPS_LogMessage('NestCameraViewer_ActionProxy', 'Variable has no ObjectIdent: ' . \$variableID);\n"
+            . "    return;\n"
+            . "}\n\n"
+            . "IPS_LogMessage(\n"
+            . "    'NestCameraViewer_ActionProxy',\n"
+            . "    'INPUT: instance=' . \$instanceID . ' variable=' . \$variableID . ' ident=' . \$ident . ' type=' . gettype(\$value) . ' value=' . json_encode(\$value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)\n"
+            . ");\n\n"
+            . "try {\n"
+            . "    IPS_RequestAction(\$instanceID, \$ident, \$value);\n"
+            . "    IPS_LogMessage(\n"
+            . "        'NestCameraViewer_ActionProxy',\n"
+            . "        'OK: instance=' . \$instanceID . ' variable=' . \$variableID . ' ident=' . \$ident . ' value=' . json_encode(\$value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)\n"
+            . "    );\n"
+            . "} catch (Throwable \$e) {\n"
+            . "    IPS_LogMessage(\n"
+            . "        'NestCameraViewer_ActionProxy',\n"
+            . "        'ERROR: instance=' . \$instanceID . ' variable=' . \$variableID . ' ident=' . \$ident . ' message=' . \$e->getMessage()\n"
+            . "    );\n"
+            . "    throw \$e;\n"
+            . "}\n";
+
+        IPS_SetScriptContent($scriptID, $code);
+    }
+
+    private function EnsureManagedActionScript(): int
+    {
+        $storedID = (int) $this->ReadAttributeInteger('ManagedActionScriptID');
+        if ($storedID > 0 && IPS_ScriptExists($storedID)) {
+            $this->UpdateManagedActionScript($storedID);
+            return $storedID;
+        }
+
+        $scriptID = IPS_CreateScript(0);
+        IPS_SetParent($scriptID, $this->InstanceID);
+        IPS_SetIdent($scriptID, 'ManagedActionProxy');
+        IPS_SetName($scriptID, 'Managed Action Proxy');
+        IPS_SetHidden($scriptID, true);
+
+        $this->UpdateManagedActionScript($scriptID);
+        $this->WriteAttributeInteger('ManagedActionScriptID', $scriptID);
+
+        return $scriptID;
+    }
 
     private function EnsureDeviceVariable(string $deviceName, int $parentID, string $traitName, string $fieldPath, $value): int
     {
@@ -1186,11 +1257,18 @@ class NestCameraViewer extends IPSModuleStrict
         $variableType = $this->MapValueTypeToIPS($type);
         $displayName = $this->BuildVariableDisplayName($traitName, $fieldPath);
         $writableDef = $this->GetWritableDefinition($traitName, $fieldPath);
+        $managedActionScriptID = (int) $this->ReadAttributeInteger('ManagedActionScriptID');
 
         if ($existing !== false) {
             IPS_SetName($existing, $displayName);
             $this->ApplyVariableProfile($existing, $traitName, $fieldPath, $type);
-            IPS_SetVariableCustomAction($existing, $writableDef !== null ? $this->InstanceID : 0);
+
+            if ($writableDef !== null && $managedActionScriptID > 0 && IPS_ScriptExists($managedActionScriptID)) {
+                IPS_SetVariableCustomAction($existing, $managedActionScriptID);
+            } else {
+                IPS_SetVariableCustomAction($existing, 0);
+            }
+
             return $existing;
         }
 
@@ -1214,7 +1292,12 @@ class NestCameraViewer extends IPSModuleStrict
         IPS_SetName($varID, $displayName);
 
         $this->ApplyVariableProfile($varID, $traitName, $fieldPath, $type);
-        IPS_SetVariableCustomAction($varID, $writableDef !== null ? $this->InstanceID : 0);
+
+        if ($writableDef !== null && $managedActionScriptID > 0 && IPS_ScriptExists($managedActionScriptID)) {
+            IPS_SetVariableCustomAction($varID, $managedActionScriptID);
+        } else {
+            IPS_SetVariableCustomAction($varID, 0);
+        }
 
         return $varID;
     }
