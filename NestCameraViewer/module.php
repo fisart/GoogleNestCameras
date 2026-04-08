@@ -204,17 +204,17 @@ class NestCameraViewer extends IPSModuleStrict
 
         $this->SyncDeviceStructure($devices);
         $this->UpdateDeviceValues($devices);
-            $detail = trim($this->ReadAttributeString('LastGoogleError'));
-            $message = 'Google SDM request failed';
-            if ($detail !== '') {
-                $message .= ': ' . $detail;
-            }
-
-            $this->SetStatus(self::STATUS_GOOGLE_ERROR);
-            $this->SetValue('StreamStatus', $message);
-            $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml($message));
-            return;
+        $detail = trim($this->ReadAttributeString('LastGoogleError'));
+        $message = 'Google SDM request failed';
+        if ($detail !== '') {
+            $message .= ': ' . $detail;
         }
+
+        $this->SetStatus(self::STATUS_GOOGLE_ERROR);
+        $this->SetValue('StreamStatus', $message);
+        $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml($message));
+        return;
+
 
         if (count($devices) === 0) {
             $this->SetStatus(self::STATUS_NO_CAMERAS);
