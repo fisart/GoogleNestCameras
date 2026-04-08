@@ -94,8 +94,9 @@ class NestCameraViewer extends IPSModuleStrict
     {
         parent::ApplyChanges();
 
+        $this->SetTimerInterval('RefreshTimer', 0);
+
         $autoRefreshSeconds = max(0, $this->ReadPropertyInteger('AutoRefreshSeconds'));
-        $this->SetTimerInterval('RefreshTimer', $autoRefreshSeconds > 0 ? ($autoRefreshSeconds * 1000) : 0);
 
         $managedActionScriptID = $this->EnsureManagedActionScript();
         if ($managedActionScriptID <= 0 || !IPS_ScriptExists($managedActionScriptID)) {
@@ -226,6 +227,7 @@ class NestCameraViewer extends IPSModuleStrict
 
         $this->SetValue('StreamStatus', 'Ready');
         $this->SetValue('ViewerHTML', $this->RenderViewerHtml());
+        $this->SetTimerInterval('RefreshTimer', $autoRefreshSeconds > 0 ? ($autoRefreshSeconds * 1000) : 0);
         $this->SetStatus(self::STATUS_ACTIVE);
     }
 
@@ -316,7 +318,15 @@ class NestCameraViewer extends IPSModuleStrict
         $hookPath = '/hook/' . $this->NormalizeHookName($this->ReadPropertyString('HookName'));
 
         $isMaster = $this->ReadPropertyBoolean('IsTokenMaster');
-        $deviceCatalog = json_decode($this->ReadAttributeString('DeviceCatalogJson'), true);
+        $deviceCatalogJson = $this->ReadAttributeString('DeviceCatalogJson');
+        if (!is_string($deviceCatalogJson) || $deviceCatalogJson === '') {
+            $deviceCatalog = [];
+        } else {
+            $deviceCatalog = json_decode($deviceCatalogJson, true);
+            if (!is_array($deviceCatalog)) {
+                $deviceCatalog = [];
+            }
+        }
         if (!is_array($deviceCatalog)) {
             $deviceCatalog = [];
         }
@@ -689,7 +699,15 @@ class NestCameraViewer extends IPSModuleStrict
         $baseHookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
         $allowedHooks = [$baseHookName];
 
-        $generatedHooks = json_decode($this->ReadAttributeString('RegisteredCameraHooksJson'), true);
+        $generatedHooksJson = $this->ReadAttributeString('RegisteredCameraHooksJson');
+        if (!is_string($generatedHooksJson) || $generatedHooksJson === '') {
+            $generatedHooks = [];
+        } else {
+            $generatedHooks = json_decode($generatedHooksJson, true);
+            if (!is_array($generatedHooks)) {
+                $generatedHooks = [];
+            }
+        }
         if (is_array($generatedHooks)) {
             foreach ($generatedHooks as $generatedHook) {
                 if (is_string($generatedHook) && $generatedHook !== '') {
@@ -933,7 +951,15 @@ class NestCameraViewer extends IPSModuleStrict
 
     private function UpdateRelevantDeviceValues(array $devices): void
     {
-        $variableCatalog = json_decode($this->ReadAttributeString('VariableCatalogJson'), true);
+        $variableCatalogJson = $this->ReadAttributeString('VariableCatalogJson');
+        if (!is_string($variableCatalogJson) || $variableCatalogJson === '') {
+            return;
+        }
+
+        $variableCatalog = json_decode($variableCatalogJson, true);
+        if (!is_array($variableCatalog)) {
+            return;
+        }
         if (!is_array($variableCatalog)) {
             return;
         }
@@ -1079,7 +1105,15 @@ class NestCameraViewer extends IPSModuleStrict
         $deviceCatalog = [];
         $knownDeviceCategoryIdents = [];
         $knownVariableCatalogKeys = [];
-        $variableCatalog = json_decode($this->ReadAttributeString('VariableCatalogJson'), true);
+        $variableCatalogJson = $this->ReadAttributeString('VariableCatalogJson');
+        if (!is_string($variableCatalogJson) || $variableCatalogJson === '') {
+            $variableCatalog = [];
+        } else {
+            $variableCatalog = json_decode($variableCatalogJson, true);
+            if (!is_array($variableCatalog)) {
+                $variableCatalog = [];
+            }
+        }
         if (!is_array($variableCatalog)) {
             $variableCatalog = [];
         }
@@ -1143,7 +1177,15 @@ class NestCameraViewer extends IPSModuleStrict
 
     private function UpdateDeviceValues(array $devices): void
     {
-        $variableCatalog = json_decode($this->ReadAttributeString('VariableCatalogJson'), true);
+        $variableCatalogJson = $this->ReadAttributeString('VariableCatalogJson');
+        if (!is_string($variableCatalogJson) || $variableCatalogJson === '') {
+            return;
+        }
+
+        $variableCatalog = json_decode($variableCatalogJson, true);
+        if (!is_array($variableCatalog)) {
+            return;
+        }
         if (!is_array($variableCatalog)) {
             return;
         }
@@ -1563,7 +1605,15 @@ class NestCameraViewer extends IPSModuleStrict
 
     private function GetCachedDevices(): array
     {
-        $devices = json_decode($this->ReadAttributeString('CachedDevicesJson'), true);
+        $cachedDevicesJson = $this->ReadAttributeString('CachedDevicesJson');
+        if (!is_string($cachedDevicesJson) || $cachedDevicesJson === '') {
+            $devices = [];
+        } else {
+            $devices = json_decode($cachedDevicesJson, true);
+            if (!is_array($devices)) {
+                $devices = [];
+            }
+        }
         if (!is_array($devices) || count($devices) === 0) {
             $devices = $this->FetchDevices();
         }
@@ -1601,7 +1651,15 @@ class NestCameraViewer extends IPSModuleStrict
 
         if (preg_match('#^/hook/([^/?]+)$#', $path, $m)) {
             $calledHookName = (string) $m[1];
-            $hookDeviceMap = json_decode($this->ReadAttributeString('HookDeviceMapJson'), true);
+            $hookDeviceMapJson = $this->ReadAttributeString('HookDeviceMapJson');
+            if (!is_string($hookDeviceMapJson) || $hookDeviceMapJson === '') {
+                $hookDeviceMap = [];
+            } else {
+                $hookDeviceMap = json_decode($hookDeviceMapJson, true);
+                if (!is_array($hookDeviceMap)) {
+                    $hookDeviceMap = [];
+                }
+            }
 
             if (is_array($hookDeviceMap) && isset($hookDeviceMap[$calledHookName])) {
                 $mappedDevice = (string) $hookDeviceMap[$calledHookName];
@@ -1694,7 +1752,15 @@ class NestCameraViewer extends IPSModuleStrict
 
     public function RequestAction($Ident, $Value): void
     {
-        $variableCatalog = json_decode($this->ReadAttributeString('VariableCatalogJson'), true);
+        $variableCatalogJson = $this->ReadAttributeString('VariableCatalogJson');
+        if (!is_string($variableCatalogJson) || $variableCatalogJson === '') {
+            throw new Exception('Variable catalog is invalid');
+        }
+
+        $variableCatalog = json_decode($variableCatalogJson, true);
+        if (!is_array($variableCatalog)) {
+            throw new Exception('Variable catalog is invalid');
+        }
         if (!is_array($variableCatalog)) {
             throw new Exception('Variable catalog is invalid');
         }
