@@ -61,7 +61,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterPropertyBoolean('AutoExtend', true);
         $this->RegisterPropertyBoolean('Debug', false);
         $this->RegisterPropertyInteger('AutoRefreshSeconds', 0);
-        $this->RegisterTimer('RefreshTimer', 0, 'NESTCAM_AutoRefresh($id);');
+        $this->RegisterTimer('RefreshTimer', 0, 'NESTCAM_AutoRefresh($_IPS[\'TARGET\']);');
         // Attributes
         $this->RegisterAttributeString('CachedDevicesJson', '[]');
         $this->RegisterAttributeString('LastOfferSummary', '');
