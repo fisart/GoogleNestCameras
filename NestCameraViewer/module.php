@@ -182,8 +182,6 @@ class NestCameraViewer extends IPSModuleStrict
         }
 
         $devices = $this->FetchDevices();
-        $this->SyncDeviceStructure($devices);
-        $this->UpdateDeviceValues($devices);
         if ($devices === null) {
             $detail = trim($this->ReadAttributeString('LastGoogleError'));
             $message = 'Google SDM request failed';
@@ -203,8 +201,28 @@ class NestCameraViewer extends IPSModuleStrict
             $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('No compatible WEB_RTC cameras found'));
             return;
         }
+
         $this->SyncDeviceStructure($devices);
         $this->UpdateDeviceValues($devices);
+            $detail = trim($this->ReadAttributeString('LastGoogleError'));
+            $message = 'Google SDM request failed';
+            if ($detail !== '') {
+                $message .= ': ' . $detail;
+            }
+
+            $this->SetStatus(self::STATUS_GOOGLE_ERROR);
+            $this->SetValue('StreamStatus', $message);
+            $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml($message));
+            return;
+        }
+
+        if (count($devices) === 0) {
+            $this->SetStatus(self::STATUS_NO_CAMERAS);
+            $this->SetValue('StreamStatus', 'No compatible WEB_RTC cameras found');
+            $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('No compatible WEB_RTC cameras found'));
+            return;
+        }
+
         if ($this->ReadPropertyString('SelectedDeviceName') === '__ALL__') {
             $this->RegisterGeneratedCameraHooks($devices);
         }
