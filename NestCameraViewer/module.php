@@ -96,6 +96,7 @@ class NestCameraViewer extends IPSModuleStrict
 
         $autoRefreshSeconds = max(0, $this->ReadPropertyInteger('AutoRefreshSeconds'));
         $this->SetTimerInterval('RefreshTimer', $autoRefreshSeconds > 0 ? ($autoRefreshSeconds * 1000) : 0);
+
         $managedActionScriptID = $this->EnsureManagedActionScript();
         if ($managedActionScriptID <= 0 || !IPS_ScriptExists($managedActionScriptID)) {
             $this->SetStatus(self::STATUS_TOKEN_ERROR);
@@ -103,6 +104,9 @@ class NestCameraViewer extends IPSModuleStrict
             $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('Managed action script could not be created'));
             return;
         }
+
+        $this->RegisterHook('nest');
+
         $hookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
         $oldHookName = $this->ReadAttributeString('RegisteredHookName');
 
@@ -208,24 +212,6 @@ class NestCameraViewer extends IPSModuleStrict
 
         $this->SyncDeviceStructure($devices);
         $this->UpdateDeviceValues($devices);
-        $detail = trim($this->ReadAttributeString('LastGoogleError'));
-        $message = 'Google SDM request failed';
-        if ($detail !== '') {
-            $message .= ': ' . $detail;
-        }
-
-        $this->SetStatus(self::STATUS_GOOGLE_ERROR);
-        $this->SetValue('StreamStatus', $message);
-        $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml($message));
-        return;
-
-
-        if (count($devices) === 0) {
-            $this->SetStatus(self::STATUS_NO_CAMERAS);
-            $this->SetValue('StreamStatus', 'No compatible WEB_RTC cameras found');
-            $this->SetValue('ViewerHTML', $this->BuildPlaceholderHtml('No compatible WEB_RTC cameras found'));
-            return;
-        }
 
         if ($this->ReadPropertyString('SelectedDeviceName') === '__ALL__') {
             $this->RegisterGeneratedCameraHooks($devices);
