@@ -60,7 +60,8 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterPropertyInteger('AuthMode', 0);
         $this->RegisterPropertyBoolean('AutoExtend', true);
         $this->RegisterPropertyBoolean('Debug', false);
-
+        $this->RegisterPropertyInteger('AutoRefreshSeconds', 0);
+        $this->RegisterTimer('RefreshTimer', 0, 'NESTCAM_AutoRefresh($id);');
         // Attributes
         $this->RegisterAttributeString('CachedDevicesJson', '[]');
         $this->RegisterAttributeString('LastOfferSummary', '');
@@ -92,6 +93,9 @@ class NestCameraViewer extends IPSModuleStrict
     public function ApplyChanges(): void
     {
         parent::ApplyChanges();
+
+        $autoRefreshSeconds = max(0, $this->ReadPropertyInteger('AutoRefreshSeconds'));
+        $this->SetTimerInterval('RefreshTimer', $autoRefreshSeconds > 0 ? ($autoRefreshSeconds * 1000) : 0);
         $managedActionScriptID = $this->EnsureManagedActionScript();
         if ($managedActionScriptID <= 0 || !IPS_ScriptExists($managedActionScriptID)) {
             $this->SetStatus(self::STATUS_TOKEN_ERROR);
@@ -395,6 +399,19 @@ class NestCameraViewer extends IPSModuleStrict
                         'caption' => 'Show Debug Information in Viewer'
                     ],
                     [
+                        'type'    => 'Select',
+                        'name'    => 'AutoRefreshSeconds',
+                        'caption' => 'Automatic Value Refresh',
+                        'options' => [
+                            ['caption' => 'Disabled',   'value' => 0],
+                            ['caption' => '30 seconds', 'value' => 30],
+                            ['caption' => '60 seconds', 'value' => 60],
+                            ['caption' => '120 seconds', 'value' => 120],
+                            ['caption' => '300 seconds', 'value' => 300],
+                            ['caption' => '600 seconds', 'value' => 600]
+                        ]
+                    ],
+                    [
                         'type'    => 'Label',
                         'caption' => 'Viewer Hook URL: ' . $hookPath
                     ]
@@ -618,6 +635,23 @@ class NestCameraViewer extends IPSModuleStrict
         ];
 
         return json_encode($form);
+    }
+
+    public function AutoRefresh(): void
+    {
+        $devices = $this->FetchDevices();
+        if ($devices === null) {
+            $detail = trim($this->ReadAttributeString('LastGoogleError'));
+            $message = 'Automatic refresh failed';
+            if ($detail !== '') {
+                $message .= ': ' . $detail;
+            }
+
+            $this->LogMessage($message, KL_MESSAGE);
+            return;
+        }
+
+        $this->UpdateRelevantDeviceValues($devices);
     }
 
     public function RefreshDevices(): void
@@ -911,6 +945,65 @@ class NestCameraViewer extends IPSModuleStrict
         }
     }
 
+    private function UpdateRelevantDeviceValues(array $devices): void
+    {
+        $variableCatalog = json_decode($this->ReadAttributeString('VariableCatalogJson'), true);
+        if (!is_array($variableCatalog)) {
+            return;
+        }
+
+        foreach ($devices as $deviceName => $device) {
+            $traits = $device['raw']['traits'] ?? [];
+            if (!is_array($traits)) {
+                continue;
+            }
+
+            $deviceCategoryIdent = $this->BuildDeviceCategoryIdent($deviceName);
+
+            foreach ($traits as $traitName => $traitData) {
+                if (!is_array($traitData)) {
+                    continue;
+                }
+
+                $flat = $this->FlattenArray($traitData);
+                foreach ($flat as $fieldPath => $value) {
+                    if (!$this->IsRelevantAutoRefreshField($traitName, $fieldPath)) {
+                        continue;
+                    }
+
+                    $varIdent = $this->BuildVariableIdent($deviceName, $traitName, $fieldPath);
+                    $catalogKey = $deviceCategoryIdent . '__' . $varIdent;
+
+                    if (!isset($variableCatalog[$catalogKey]['object_id'])) {
+                        continue;
+                    }
+
+                    $varID = (int) $variableCatalog[$catalogKey]['object_id'];
+                    if ($varID <= 0 || !IPS_VariableExists($varID)) {
+                        continue;
+                    }
+
+                    $this->WriteValueToVariable($varID, $value);
+                }
+            }
+        }
+    }
+
+
+    private function IsRelevantAutoRefreshField(string $traitName, string $fieldPath): bool
+    {
+        $fullKey = $traitName . '.' . $fieldPath;
+
+        $relevantKeys = [
+            'sdm.devices.traits.Temperature.ambientTemperatureCelsius',
+            'sdm.devices.traits.Humidity.ambientHumidityPercent',
+            'sdm.devices.traits.ThermostatMode.mode',
+            'sdm.devices.traits.ThermostatTemperatureSetpoint.coolCelsius',
+            'sdm.devices.traits.ThermostatTemperatureSetpoint.heatCelsius'
+        ];
+
+        return in_array($fullKey, $relevantKeys, true);
+    }
 
 
     private function FetchDevices(): ?array
