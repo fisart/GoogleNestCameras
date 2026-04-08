@@ -106,7 +106,7 @@ class NestCameraViewer extends IPSModuleStrict
             return;
         }
 
-        $this->RegisterHook('nest');
+        $this->RegisterHook('webhook_for_google_events');
 
         $hookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
         $oldHookName = $this->ReadAttributeString('RegisteredHookName');
