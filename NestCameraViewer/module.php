@@ -690,264 +690,327 @@ class NestCameraViewer extends IPSModuleStrict
         echo 'Viewer rebuilt';
     }
 
-    protected function ProcessHookData(): void
-    {
-        $uri = $_SERVER['REQUEST_URI'] ?? '';
-        $path = parse_url($uri, PHP_URL_PATH);
-        $path = is_string($path) ? $path : '';
+protected function ProcessHookData(): void
+{
+    $uri = $_SERVER['REQUEST_URI'] ?? '';
+    $path = parse_url($uri, PHP_URL_PATH);
+    $path = is_string($path) ? $path : '';
 
-        $baseHookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
-        $allowedHooks = [$baseHookName];
-
-        $generatedHooksJson = $this->ReadAttributeString('RegisteredCameraHooksJson');
-        if (!is_string($generatedHooksJson) || $generatedHooksJson === '') {
-            $generatedHooks = [];
-        } else {
-            $generatedHooks = json_decode($generatedHooksJson, true);
-            if (!is_array($generatedHooks)) {
-                $generatedHooks = [];
+    $eventHookName = 'webhook_for_google_events';
+    if ($path === '/hook/' . $eventHookName) {
+        try {
+            $rawBody = @file_get_contents('php://input');
+            if (!is_string($rawBody) || $rawBody === '') {
+                http_response_code(400);
+                echo 'Missing body';
+                return;
             }
-        }
-        if (is_array($generatedHooks)) {
-            foreach ($generatedHooks as $generatedHook) {
-                if (is_string($generatedHook) && $generatedHook !== '') {
-                    $allowedHooks[] = $generatedHook;
-                }
-            }
-        }
 
-        $matched = false;
-        foreach ($allowedHooks as $allowedHook) {
-            if ($path === '/hook/' . $allowedHook) {
-                $matched = true;
-                break;
+            $envelope = json_decode($rawBody, true);
+            if (!is_array($envelope)) {
+                http_response_code(400);
+                echo 'Invalid JSON';
+                return;
             }
-        }
 
-        if (!$matched) {
-            http_response_code(404);
-            echo 'Not found';
+            $pubsubMessage = $envelope['message'] ?? null;
+            if (!is_array($pubsubMessage)) {
+                http_response_code(400);
+                echo 'Missing Pub/Sub message';
+                return;
+            }
+
+            $messageDataBase64 = (string) ($pubsubMessage['data'] ?? '');
+            if ($messageDataBase64 === '') {
+                $this->LogMessage('Google event received without data payload', KL_MESSAGE);
+                http_response_code(200);
+                echo 'OK';
+                return;
+            }
+
+            $decodedMessageJson = base64_decode($messageDataBase64, true);
+            if (!is_string($decodedMessageJson) || $decodedMessageJson === '') {
+                http_response_code(400);
+                echo 'Invalid base64 payload';
+                return;
+            }
+
+            $eventPayload = json_decode($decodedMessageJson, true);
+            if (!is_array($eventPayload)) {
+                http_response_code(400);
+                echo 'Invalid decoded event JSON';
+                return;
+            }
+
+            $this->LogMessage(
+                'Google event received: ' . json_encode($eventPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                KL_MESSAGE
+            );
+
+            http_response_code(200);
+            echo 'OK';
+            return;
+        } catch (Throwable $e) {
+            $this->LogMessage('Google event hook error: ' . $e->getMessage(), KL_MESSAGE);
+            http_response_code(500);
+            echo 'Error';
             return;
         }
+    }
 
-        $action = $_GET['action'] ?? $_POST['action'] ?? 'page';
+    $baseHookName = $this->NormalizeHookName($this->ReadPropertyString('HookName'));
+    $allowedHooks = [$baseHookName];
 
-        try {
-            switch ($action) {
-                case 'page':
-                    $this->EnforceWebhookAuth();
-                    header('Content-Type: text/html; charset=utf-8');
-                    echo $this->RenderViewerHtml();
-                    return;
-
-                case 'ping':
-                    $this->SendJson([
-                        'ok'         => true,
-                        'instanceID' => $this->InstanceID,
-                        'message'    => 'Backend reached'
-                    ]);
-                    return;
-
-                case 'authcheck':
-                    $authMode = $this->ReadPropertyInteger('AuthMode');
-                    if ($authMode === 0) {
-                        $this->SendJson([
-                            'ok'            => true,
-                            'authenticated' => true
-                        ]);
-                        return;
-                    }
-
-                    $this->SendJson([
-                        'ok'            => true,
-                        'authenticated' => $this->IsWebhookAuthenticated(),
-                        'loginUrl'      => $this->GetWebhookLoginUrl()
-                    ]);
-                    return;
-
-                case 'devices':
-                    $devices = $this->GetCachedDevices();
-                    $items = [];
-                    foreach ($devices as $name => $device) {
-                        $items[] = [
-                            'label' => $device['label'],
-                            'name'  => $name
-                        ];
-                    }
-
-                    $this->SendJson([
-                        'ok'      => true,
-                        'devices' => $items,
-                        'default' => $this->ResolveSelectedDeviceName($devices)
-                    ]);
-                    return;
-
-                case 'info':
-                    $this->RequireWebhookAuthForApi();
-                    $deviceName = $this->ResolveRequestDeviceName();
-                    $url = 'https://smartdevicemanagement.googleapis.com/v1/' . $deviceName;
-                    $result = $this->GoogleRequest($url, 'GET');
-
-                    if ($result['httpCode'] !== 200) {
-                        $this->SendJson([
-                            'ok'       => false,
-                            'error'    => 'Device read failed',
-                            'httpCode' => $result['httpCode'],
-                            'raw'      => $result['response']
-                        ], 500);
-                        return;
-                    }
-
-                    $this->SendJson([
-                        'ok'     => true,
-                        'device' => json_decode($result['response'], true)
-                    ]);
-                    return;
-
-                case 'generate':
-                    $this->RequireWebhookAuthForApi();
-                    $deviceName = $this->ResolveRequestDeviceName();
-                    $offerSdp = $this->ReadPostedOfferSdp();
-
-                    if ($offerSdp === '') {
-                        $this->SendJson([
-                            'ok'    => false,
-                            'error' => 'Missing offerSdp'
-                        ], 400);
-                        return;
-                    }
-
-                    if (!preg_match("/(\r\n|\n)$/", $offerSdp)) {
-                        $offerSdp .= "\n";
-                    }
-
-                    $url = 'https://smartdevicemanagement.googleapis.com/v1/' . $deviceName . ':executeCommand';
-                    $body = [
-                        'command' => 'sdm.devices.commands.CameraLiveStream.GenerateWebRtcStream',
-                        'params'  => [
-                            'offerSdp' => $offerSdp
-                        ]
-                    ];
-
-                    $result = $this->GoogleRequest($url, 'POST', $body);
-
-                    if ($result['httpCode'] !== 200) {
-                        $this->SendJson([
-                            'ok'           => false,
-                            'error'        => 'GenerateWebRtcStream failed',
-                            'httpCode'     => $result['httpCode'],
-                            'raw'          => $result['response'],
-                            'offerSummary' => $this->SummarizeSdp($offerSdp)
-                        ], 500);
-                        return;
-                    }
-
-                    $data = json_decode($result['response'], true);
-                    $answerSdp = $data['results']['answerSdp'] ?? '';
-
-                    $this->WriteAttributeString('LastOfferSummary', $this->SummarizeSdp($offerSdp));
-                    $this->WriteAttributeString('LastAnswerSummary', $this->SummarizeSdp($answerSdp));
-                    $this->SetValue('ExpiresAt', (string) ($data['results']['expiresAt'] ?? ''));
-                    $this->SetValue('StreamStatus', 'Stream started');
-
-                    $this->SendJson([
-                        'ok'             => true,
-                        'answerSdp'      => $answerSdp,
-                        'answerSummary'  => $this->SummarizeSdp($answerSdp),
-                        'offerSummary'   => $this->SummarizeSdp($offerSdp),
-                        'mediaSessionId' => $data['results']['mediaSessionId'] ?? '',
-                        'expiresAt'      => $data['results']['expiresAt'] ?? ''
-                    ]);
-                    return;
-
-                case 'extend':
-                    $this->RequireWebhookAuthForApi();
-                    $deviceName = $this->ResolveRequestDeviceName();
-                    $mediaSessionId = $_POST['mediaSessionId'] ?? '';
-
-                    if ($mediaSessionId === '') {
-                        $this->SendJson(['ok' => false, 'error' => 'Missing mediaSessionId'], 400);
-                        return;
-                    }
-
-                    $url = 'https://smartdevicemanagement.googleapis.com/v1/' . $deviceName . ':executeCommand';
-                    $body = [
-                        'command' => 'sdm.devices.commands.CameraLiveStream.ExtendWebRtcStream',
-                        'params'  => [
-                            'mediaSessionId' => $mediaSessionId
-                        ]
-                    ];
-
-                    $result = $this->GoogleRequest($url, 'POST', $body);
-
-                    if ($result['httpCode'] !== 200) {
-                        $this->SendJson([
-                            'ok'       => false,
-                            'error'    => 'ExtendWebRtcStream failed',
-                            'httpCode' => $result['httpCode'],
-                            'raw'      => $result['response']
-                        ], 500);
-                        return;
-                    }
-
-                    $data = json_decode($result['response'], true);
-                    $this->SetValue('ExpiresAt', (string) ($data['results']['expiresAt'] ?? ''));
-
-                    $this->SendJson([
-                        'ok'        => true,
-                        'expiresAt' => $data['results']['expiresAt'] ?? ''
-                    ]);
-                    return;
-
-                case 'stop':
-                    $this->RequireWebhookAuthForApi();
-                    $deviceName = $this->ResolveRequestDeviceName();
-                    $mediaSessionId = $_POST['mediaSessionId'] ?? '';
-
-                    if ($mediaSessionId === '') {
-                        $this->SendJson(['ok' => false, 'error' => 'Missing mediaSessionId'], 400);
-                        return;
-                    }
-
-                    $url = 'https://smartdevicemanagement.googleapis.com/v1/' . $deviceName . ':executeCommand';
-                    $body = [
-                        'command' => 'sdm.devices.commands.CameraLiveStream.StopWebRtcStream',
-                        'params'  => [
-                            'mediaSessionId' => $mediaSessionId
-                        ]
-                    ];
-
-                    $result = $this->GoogleRequest($url, 'POST', $body);
-
-                    if ($result['httpCode'] !== 200) {
-                        $this->SendJson([
-                            'ok'       => false,
-                            'error'    => 'StopWebRtcStream failed',
-                            'httpCode' => $result['httpCode'],
-                            'raw'      => $result['response']
-                        ], 500);
-                        return;
-                    }
-
-                    $this->SetValue('StreamStatus', 'Stream stopped');
-                    $this->SetValue('ExpiresAt', '');
-                    $this->SendJson(['ok' => true]);
-                    return;
-
-                default:
-                    $this->SendJson([
-                        'ok'    => false,
-                        'error' => 'Unknown action'
-                    ], 400);
-                    return;
-            }
-        } catch (Throwable $e) {
-            $this->SendJson([
-                'ok'    => false,
-                'error' => $e->getMessage()
-            ], 500);
+    $generatedHooksJson = $this->ReadAttributeString('RegisteredCameraHooksJson');
+    if (!is_string($generatedHooksJson) || $generatedHooksJson === '') {
+        $generatedHooks = [];
+    } else {
+        $generatedHooks = json_decode($generatedHooksJson, true);
+        if (!is_array($generatedHooks)) {
+            $generatedHooks = [];
         }
     }
+
+    if (is_array($generatedHooks)) {
+        foreach ($generatedHooks as $generatedHook) {
+            if (is_string($generatedHook) && $generatedHook !== '') {
+                $allowedHooks[] = $generatedHook;
+            }
+        }
+    }
+
+    $matched = false;
+    foreach ($allowedHooks as $allowedHook) {
+        if ($path === '/hook/' . $allowedHook) {
+            $matched = true;
+            break;
+        }
+    }
+
+    if (!$matched) {
+        http_response_code(404);
+        echo 'Not found';
+        return;
+    }
+
+    $action = $_GET['action'] ?? $_POST['action'] ?? 'page';
+
+    try {
+        switch ($action) {
+            case 'page':
+                $this->EnforceWebhookAuth();
+                header('Content-Type: text/html; charset=utf-8');
+                echo $this->RenderViewerHtml();
+                return;
+
+            case 'ping':
+                $this->SendJson([
+                    'ok'         => true,
+                    'instanceID' => $this->InstanceID,
+                    'message'    => 'Backend reached'
+                ]);
+                return;
+
+            case 'authcheck':
+                $authMode = $this->ReadPropertyInteger('AuthMode');
+                if ($authMode === 0) {
+                    $this->SendJson([
+                        'ok'            => true,
+                        'authenticated' => true
+                    ]);
+                    return;
+                }
+
+                $this->SendJson([
+                    'ok'            => true,
+                    'authenticated' => $this->IsWebhookAuthenticated(),
+                    'loginUrl'      => $this->GetWebhookLoginUrl()
+                ]);
+                return;
+
+            case 'devices':
+                $devices = $this->GetCachedDevices();
+                $items = [];
+                foreach ($devices as $name => $device) {
+                    $items[] = [
+                        'label' => $device['label'],
+                        'name'  => $name
+                    ];
+                }
+
+                $this->SendJson([
+                    'ok'      => true,
+                    'devices' => $items,
+                    'default' => $this->ResolveSelectedDeviceName($devices)
+                ]);
+                return;
+
+            case 'info':
+                $this->RequireWebhookAuthForApi();
+                $deviceName = $this->ResolveRequestDeviceName();
+                $url = 'https://smartdevicemanagement.googleapis.com/v1/' . $deviceName;
+                $result = $this->GoogleRequest($url, 'GET');
+
+                if ($result['httpCode'] !== 200) {
+                    $this->SendJson([
+                        'ok'       => false,
+                        'error'    => 'Device read failed',
+                        'httpCode' => $result['httpCode'],
+                        'raw'      => $result['response']
+                    ], 500);
+                    return;
+                }
+
+                $this->SendJson([
+                    'ok'     => true,
+                    'device' => json_decode($result['response'], true)
+                ]);
+                return;
+
+            case 'generate':
+                $this->RequireWebhookAuthForApi();
+                $deviceName = $this->ResolveRequestDeviceName();
+                $offerSdp = $this->ReadPostedOfferSdp();
+
+                if ($offerSdp === '') {
+                    $this->SendJson([
+                        'ok'    => false,
+                        'error' => 'Missing offerSdp'
+                    ], 400);
+                    return;
+                }
+
+                if (!preg_match("/(\r\n|\n)$/", $offerSdp)) {
+                    $offerSdp .= "\n";
+                }
+
+                $url = 'https://smartdevicemanagement.googleapis.com/v1/' . $deviceName . ':executeCommand';
+                $body = [
+                    'command' => 'sdm.devices.commands.CameraLiveStream.GenerateWebRtcStream',
+                    'params'  => [
+                        'offerSdp' => $offerSdp
+                    ]
+                ];
+
+                $result = $this->GoogleRequest($url, 'POST', $body);
+
+                if ($result['httpCode'] !== 200) {
+                    $this->SendJson([
+                        'ok'           => false,
+                        'error'        => 'GenerateWebRtcStream failed',
+                        'httpCode'     => $result['httpCode'],
+                        'raw'          => $result['response'],
+                        'offerSummary' => $this->SummarizeSdp($offerSdp)
+                    ], 500);
+                    return;
+                }
+
+                $data = json_decode($result['response'], true);
+                $answerSdp = $data['results']['answerSdp'] ?? '';
+
+                $this->WriteAttributeString('LastOfferSummary', $this->SummarizeSdp($offerSdp));
+                $this->WriteAttributeString('LastAnswerSummary', $this->SummarizeSdp($answerSdp));
+                $this->SetValue('ExpiresAt', (string) ($data['results']['expiresAt'] ?? ''));
+                $this->SetValue('StreamStatus', 'Stream started');
+
+                $this->SendJson([
+                    'ok'             => true,
+                    'answerSdp'      => $answerSdp,
+                    'answerSummary'  => $this->SummarizeSdp($answerSdp),
+                    'offerSummary'   => $this->SummarizeSdp($offerSdp),
+                    'mediaSessionId' => $data['results']['mediaSessionId'] ?? '',
+                    'expiresAt'      => $data['results']['expiresAt'] ?? ''
+                ]);
+                return;
+
+            case 'extend':
+                $this->RequireWebhookAuthForApi();
+                $deviceName = $this->ResolveRequestDeviceName();
+                $mediaSessionId = $_POST['mediaSessionId'] ?? '';
+
+                if ($mediaSessionId === '') {
+                    $this->SendJson(['ok' => false, 'error' => 'Missing mediaSessionId'], 400);
+                    return;
+                }
+
+                $url = 'https://smartdevicemanagement.googleapis.com/v1/' . $deviceName . ':executeCommand';
+                $body = [
+                    'command' => 'sdm.devices.commands.CameraLiveStream.ExtendWebRtcStream',
+                    'params'  => [
+                        'mediaSessionId' => $mediaSessionId
+                    ]
+                ];
+
+                $result = $this->GoogleRequest($url, 'POST', $body);
+
+                if ($result['httpCode'] !== 200) {
+                    $this->SendJson([
+                        'ok'       => false,
+                        'error'    => 'ExtendWebRtcStream failed',
+                        'httpCode' => $result['httpCode'],
+                        'raw'      => $result['response']
+                    ], 500);
+                    return;
+                }
+
+                $data = json_decode($result['response'], true);
+                $this->SetValue('ExpiresAt', (string) ($data['results']['expiresAt'] ?? ''));
+
+                $this->SendJson([
+                    'ok'        => true,
+                    'expiresAt' => $data['results']['expiresAt'] ?? ''
+                ]);
+                return;
+
+            case 'stop':
+                $this->RequireWebhookAuthForApi();
+                $deviceName = $this->ResolveRequestDeviceName();
+                $mediaSessionId = $_POST['mediaSessionId'] ?? '';
+
+                if ($mediaSessionId === '') {
+                    $this->SendJson(['ok' => false, 'error' => 'Missing mediaSessionId'], 400);
+                    return;
+                }
+
+                $url = 'https://smartdevicemanagement.googleapis.com/v1/' . $deviceName . ':executeCommand';
+                $body = [
+                    'command' => 'sdm.devices.commands.CameraLiveStream.StopWebRtcStream',
+                    'params'  => [
+                        'mediaSessionId' => $mediaSessionId
+                    ]
+                ];
+
+                $result = $this->GoogleRequest($url, 'POST', $body);
+
+                if ($result['httpCode'] !== 200) {
+                    $this->SendJson([
+                        'ok'       => false,
+                        'error'    => 'StopWebRtcStream failed',
+                        'httpCode' => $result['httpCode'],
+                        'raw'      => $result['response']
+                    ], 500);
+                    return;
+                }
+
+                $this->SetValue('StreamStatus', 'Stream stopped');
+                $this->SetValue('ExpiresAt', '');
+                $this->SendJson(['ok' => true]);
+                return;
+
+            default:
+                $this->SendJson([
+                    'ok'    => false,
+                    'error' => 'Unknown action'
+                ], 400);
+                return;
+        }
+    } catch (Throwable $e) {
+        $this->SendJson([
+            'ok'    => false,
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
 
     private function UpdateRelevantDeviceValues(array $devices): void
     {
