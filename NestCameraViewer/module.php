@@ -747,6 +747,31 @@ class NestCameraViewer extends IPSModuleStrict
                     KL_MESSAGE
                 );
 
+                $deviceName = (string) ($eventPayload['resourceUpdate']['name'] ?? '');
+                if ($deviceName === '') {
+                    $this->LogMessage('Google event contains no resourceUpdate.name', KL_MESSAGE);
+                    http_response_code(200);
+                    echo 'OK';
+                    return;
+                }
+
+                $device = $this->FetchSingleDevice($deviceName);
+                if ($device === null) {
+                    $detail = trim($this->ReadAttributeString('LastGoogleError'));
+                    $message = 'Google event refresh failed for device: ' . $deviceName;
+                    if ($detail !== '') {
+                        $message .= ' - ' . $detail;
+                    }
+
+                    $this->LogMessage($message, KL_MESSAGE);
+                    http_response_code(200);
+                    echo 'OK';
+                    return;
+                }
+
+                $this->UpdateSingleDeviceValues($deviceName, $device);
+                $this->LogMessage('Google event refreshed device: ' . $deviceName, KL_MESSAGE);
+
                 http_response_code(200);
                 echo 'OK';
                 return;
