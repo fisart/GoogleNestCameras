@@ -1199,14 +1199,14 @@ class NestCameraViewer extends IPSModuleStrict
         } catch (Throwable $e) {
             $msg = 'Access token unavailable: ' . $e->getMessage();
             $this->WriteAttributeString('LastGoogleError', $msg);
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($msg, KL_ERROR);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
         if ($token === '') {
             $msg = 'Access token is empty';
             $this->WriteAttributeString('LastGoogleError', $msg);
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($msg, KL_ERROR);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
@@ -1214,7 +1214,7 @@ class NestCameraViewer extends IPSModuleStrict
         if ($enterpriseId === '') {
             $msg = 'EnterpriseID missing or unreadable from local OAuth config';
             $this->WriteAttributeString('LastGoogleError', $msg);
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($msg, KL_ERROR);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
@@ -1232,7 +1232,7 @@ class NestCameraViewer extends IPSModuleStrict
 
             $msg = 'Devices request failed: ' . $detail;
             $this->WriteAttributeString('LastGoogleError', $msg);
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($msg, KL_ERROR);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
@@ -1240,7 +1240,7 @@ class NestCameraViewer extends IPSModuleStrict
         if (!is_array($json) || !isset($json['devices']) || !is_array($json['devices'])) {
             $msg = 'Devices response is not valid JSON or contains no devices array';
             $this->WriteAttributeString('LastGoogleError', $msg);
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($msg, KL_ERROR);
+            $this->LogMessage($msg, KL_ERROR);
             return [];
         }
 
@@ -1279,21 +1279,21 @@ class NestCameraViewer extends IPSModuleStrict
         } catch (Throwable $e) {
             $msg = 'Access token unavailable: ' . $e->getMessage();
             $this->WriteAttributeString('LastGoogleError', $msg);
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($msg, KL_ERROR);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
         if ($token === '') {
             $msg = 'Access token is empty';
             $this->WriteAttributeString('LastGoogleError', $msg);
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($msg, KL_ERROR);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
         if ($deviceName === '') {
             $msg = 'Device name is empty';
             $this->WriteAttributeString('LastGoogleError', $msg);
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($msg, KL_ERROR);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
@@ -1311,7 +1311,7 @@ class NestCameraViewer extends IPSModuleStrict
 
             $msg = 'Single device request failed: ' . $detail;
             $this->WriteAttributeString('LastGoogleError', $msg);
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($msg, KL_ERROR);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
@@ -1319,7 +1319,7 @@ class NestCameraViewer extends IPSModuleStrict
         if (!is_array($device)) {
             $msg = 'Single device response is not valid JSON';
             $this->WriteAttributeString('LastGoogleError', $msg);
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($msg, KL_ERROR);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
@@ -1327,7 +1327,7 @@ class NestCameraViewer extends IPSModuleStrict
         if ($name === '') {
             $msg = 'Single device response contains no device name';
             $this->WriteAttributeString('LastGoogleError', $msg);
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($msg, KL_ERROR);
+            $this->LogMessage($msg, KL_ERROR);
             return null;
         }
 
@@ -2505,7 +2505,7 @@ class NestCameraViewer extends IPSModuleStrict
         curl_close($ch);
 
         if ($response === false) {
-            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage(
+            $this->LogMessage(
                 'XXX_GoogleRequest FAILED method=' . $method .
                     ' url=' . $url .
                     ' curlErr=' . $curlErr,
@@ -2519,7 +2519,7 @@ class NestCameraViewer extends IPSModuleStrict
             ];
         }
 
-        if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage(
+        $this->LogMessage(
             'XXX_GoogleRequest response method=' . $method .
                 ' url=' . $url .
                 ' httpCode=' . $httpCode .
