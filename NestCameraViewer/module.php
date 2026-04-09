@@ -758,6 +758,14 @@ class NestCameraViewer extends IPSModuleStrict
                 $device = $this->FetchSingleDevice($deviceName);
                 if ($device === null) {
                     $detail = trim($this->ReadAttributeString('LastGoogleError'));
+
+                    if (strpos($detail, 'HTTP 404') !== false) {
+                        $this->LogMessage('Google event ignored missing device: ' . $deviceName, KL_MESSAGE);
+                        http_response_code(200);
+                        echo 'OK';
+                        return;
+                    }
+
                     $message = 'Google event refresh failed for device: ' . $deviceName;
                     if ($detail !== '') {
                         $message .= ' - ' . $detail;
