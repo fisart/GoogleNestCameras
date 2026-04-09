@@ -231,23 +231,6 @@ class NestCameraViewer extends IPSModuleStrict
         $this->SetStatus(self::STATUS_ACTIVE);
     }
 
-    public function Destroy(): void
-    {
-        $this->SetTimerInterval('RefreshTimer', 0);
-
-        $this->UnregisterHook('webhook_for_google_events');
-
-        $registeredHookName = $this->ReadAttributeString('RegisteredHookName');
-        if (is_string($registeredHookName) && $registeredHookName !== '') {
-            $this->UnregisterHook($registeredHookName);
-            $this->WriteAttributeString('RegisteredHookName', '');
-        }
-
-        $this->UnregisterGeneratedCameraHooks();
-
-        parent::Destroy();
-    }
-
     public function GetConfigurationForm(): string
     {
         $form = [
@@ -2832,38 +2815,22 @@ class NestCameraViewer extends IPSModuleStrict
       return rebuilt.join('\\r\\n');
     }
 
-function startExtendTimer() {
-  if (!autoExtendEnabled) {
-    return;
-  }
+    async function parseJsonResponse(res) {
+      const text = await res.text();
 
-  clearExtendTimer();
-
-  extendTimer = setInterval(async () => {
-    if (!currentMediaSessionId) {
-      return;
-    }
-
-    try {
-      const data = await callBackendPost({
-        action: 'extend',
-        mediaSessionId: currentMediaSessionId
-      });
-
-      if (data.restartRequired) {
-        setDebug('Stream restart required after extend.');
-        currentMediaSessionId = '';
-        clearExtendTimer();
-        await startStream();
-        return;
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error('Backend did not return JSON: ' + text);
       }
 
-      setDebug('Extended stream. New expiry: ' + (data.expiresAt || 'unknown'));
-    } catch (e) {
-      setDebug('Auto-extend failed: ' + e.message);
+      if (!data.ok) {
+        throw new Error(JSON.stringify(data, null, 2));
+      }
+
+      return data;
     }
-  }, 240000);
-}
 
     async function callBackendGet(action) {
       let url = backendBaseUrl + '?action=' + encodeURIComponent(action);
@@ -2956,41 +2923,37 @@ function startExtendTimer() {
       }, 240000);
     }
 
-async function stopStream() {
-  try {
-    clearExtendTimer();
-
-    if (currentMediaSessionId) {
+    async function stopStream() {
       try {
-        const data = await callBackendPost({
-          action: 'stop',
-          mediaSessionId: currentMediaSessionId
-        });
+        clearExtendTimer();
 
-        if (data.restartRequired) {
-          setDebug('Stop reported stale session. Clearing local session state.');
+        if (currentMediaSessionId) {
+          try {
+            await callBackendPost({
+              action: 'stop',
+              mediaSessionId: currentMediaSessionId
+            });
+          } catch (e) {
+          }
         }
+
+        currentMediaSessionId = '';
+        lastBackendData = null;
+
+        if (pc) {
+          try {
+            pc.close();
+          } catch (e) {
+          }
+          pc = null;
+        }
+
+        videoEl.pause();
+        videoEl.srcObject = null;
       } catch (e) {
+        setDebug('Stop failed: ' + e.message);
       }
     }
-
-    currentMediaSessionId = '';
-    lastBackendData = null;
-
-    if (pc) {
-      try {
-        pc.close();
-      } catch (e) {
-      }
-      pc = null;
-    }
-
-    videoEl.pause();
-    videoEl.srcObject = null;
-  } catch (e) {
-    setDebug('Stop failed: ' + e.message);
-  }
-}
 
     async function startStream() {
       try {
