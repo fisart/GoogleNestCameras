@@ -755,12 +755,46 @@ class NestCameraViewer extends IPSModuleStrict
                     return;
                 }
 
+                $deviceCatalogJson = $this->ReadAttributeString('DeviceCatalogJson');
+                if (!is_string($deviceCatalogJson) || $deviceCatalogJson === '') {
+                    $deviceCatalog = [];
+                } else {
+                    $deviceCatalog = json_decode($deviceCatalogJson, true);
+                    if (!is_array($deviceCatalog)) {
+                        $deviceCatalog = [];
+                    }
+                }
+
+                if (!array_key_exists($deviceName, $deviceCatalog)) {
+                    $devices = $this->FetchDevices();
+                    if ($devices === null) {
+                        $detail = trim($this->ReadAttributeString('LastGoogleError'));
+                        $message = 'Google event full refresh failed for unknown device: ' . $deviceName;
+                        if ($detail !== '') {
+                            $message .= ' - ' . $detail;
+                        }
+
+                        $this->LogMessage($message, KL_MESSAGE);
+                        http_response_code(200);
+                        echo 'OK';
+                        return;
+                    }
+
+                    $this->SyncDeviceStructure($devices);
+                    $this->UpdateDeviceValues($devices);
+                    $this->LogMessage('Google event triggered full refresh for unknown device: ' . $deviceName, KL_MESSAGE);
+
+                    http_response_code(200);
+                    echo 'OK';
+                    return;
+                }
+
                 $device = $this->FetchSingleDevice($deviceName);
                 if ($device === null) {
                     $detail = trim($this->ReadAttributeString('LastGoogleError'));
 
                     if (strpos($detail, 'HTTP 404') !== false) {
-                        $this->LogMessage('Google event ignored missing device: ' . $deviceName, KL_MESSAGE);
+                        $this->LogMessage('Google event ignored non-fetchable resource: ' . $deviceName, KL_MESSAGE);
                         http_response_code(200);
                         echo 'OK';
                         return;
@@ -778,8 +812,7 @@ class NestCameraViewer extends IPSModuleStrict
                 }
 
                 $this->UpdateSingleDeviceValues($deviceName, $device);
-                $this->LogMessage('Google event refreshed device: ' . $deviceName, KL_MESSAGE);
-
+                $this->LogMessage('Google event refreshed known device: ' . $deviceName, KL_MESSAGE);
                 http_response_code(200);
                 echo 'OK';
                 return;
