@@ -977,6 +977,26 @@ class NestCameraViewer extends IPSModuleStrict
                     $result = $this->GoogleRequest($url, 'POST', $body);
 
                     if ($result['httpCode'] !== 200) {
+                        $raw = (string) ($result['response'] ?? '');
+
+                        if (
+                            ($result['httpCode'] === 400) &&
+                            (strpos($raw, 'FAILED_PRECONDITION') !== false) &&
+                            (strpos($raw, 'invalid session or user id mismatch') !== false)
+                        ) {
+                            $this->SetValue('StreamStatus', 'Stream restart required');
+                            $this->SetValue('ExpiresAt', '');
+
+                            $this->SendJson([
+                                'ok'             => false,
+                                'restartRequired' => true,
+                                'error'          => 'Stream session is no longer valid',
+                                'httpCode'       => $result['httpCode'],
+                                'raw'            => $raw
+                            ], 200);
+                            return;
+                        }
+
                         $this->SendJson([
                             'ok'       => false,
                             'error'    => 'ExtendWebRtcStream failed',
@@ -994,7 +1014,6 @@ class NestCameraViewer extends IPSModuleStrict
                         'expiresAt' => $data['results']['expiresAt'] ?? ''
                     ]);
                     return;
-
                 case 'stop':
                     $this->RequireWebhookAuthForApi();
                     $deviceName = $this->ResolveRequestDeviceName();
@@ -1016,6 +1035,26 @@ class NestCameraViewer extends IPSModuleStrict
                     $result = $this->GoogleRequest($url, 'POST', $body);
 
                     if ($result['httpCode'] !== 200) {
+                        $raw = (string) ($result['response'] ?? '');
+
+                        if (
+                            ($result['httpCode'] === 400) &&
+                            (strpos($raw, 'FAILED_PRECONDITION') !== false) &&
+                            (strpos($raw, 'invalid session or user id mismatch') !== false)
+                        ) {
+                            $this->SetValue('StreamStatus', 'Stream stopped');
+                            $this->SetValue('ExpiresAt', '');
+
+                            $this->SendJson([
+                                'ok'              => false,
+                                'restartRequired' => true,
+                                'error'           => 'Stream session is no longer valid',
+                                'httpCode'        => $result['httpCode'],
+                                'raw'             => $raw
+                            ], 200);
+                            return;
+                        }
+
                         $this->SendJson([
                             'ok'       => false,
                             'error'    => 'StopWebRtcStream failed',
@@ -1029,7 +1068,6 @@ class NestCameraViewer extends IPSModuleStrict
                     $this->SetValue('ExpiresAt', '');
                     $this->SendJson(['ok' => true]);
                     return;
-
                 default:
                     $this->SendJson([
                         'ok'    => false,
