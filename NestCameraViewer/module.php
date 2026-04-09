@@ -2707,277 +2707,302 @@ class NestCameraViewer extends IPSModuleStrict
         }
 
         return <<<HTML
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Nest Camera Viewer</title>
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      background: #000;
-      overflow: hidden;
-      font-family: Arial, sans-serif;
-    }
-    #wrap {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      background: #000;
-    }
-    video {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      background: #000;
-      display: block;
-    }
-    #debugBox {
-      display: none;
-      position: absolute;
-      left: 10px;
-      right: 10px;
-      bottom: 10px;
-      max-height: 35%;
-      overflow: auto;
-      white-space: pre-wrap;
-      font-size: 12px;
-      color: #eee;
-      background: rgba(0,0,0,0.75);
-      border: 1px solid #444;
-      padding: 8px;
-      box-sizing: border-box;
-    }
-  </style>
-</head>
-<body>
-  <div id="wrap">
-    <div id="allModeLinks" style="display: {$allModeDisplay}; padding: 12px; color:#eee;">
-      {$cameraLinksHtml}
-    </div>
-    <video id="video" autoplay playsinline muted></video>
-    <div id="debugBox"></div>
-  </div>
+        <!doctype html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>Nest Camera Viewer</title>
+        <style>
+        html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+        font-family: Arial, sans-serif;
+        }
+        #wrap {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        }
+        video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
+        display: block;
+        }
+        #debugBox {
+        display: none;
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        max-height: 35%;
+        overflow: auto;
+        white-space: pre-wrap;
+        font-size: 12px;
+        color: #eee;
+        background: rgba(0,0,0,0.75);
+        border: 1px solid #444;
+        padding: 8px;
+        box-sizing: border-box;
+        }
+        </style>
+        </head>
+        <body>
+        <div id="wrap">
+            <div id="allModeLinks" style="display: {$allModeDisplay}; padding: 12px; color:#eee;">
+            {$cameraLinksHtml}
+            </div>
+            <video id="video" autoplay playsinline muted></video>
+            <div id="debugBox"></div>
+        </div>
 
-  <script>
-    const backendBaseUrl = '{$hookPath}';
-    const initialDebug = {$showDebug};
-    const autoExtendEnabled = {$autoExtend};
-    const selectedDeviceName = '{$selectedDeviceName}';
-    const allMode = selectedDeviceName === '__ALL__';
+        <script>
+        const backendBaseUrl = '{$hookPath}';
+        const initialDebug = {$showDebug};
+        const autoExtendEnabled = {$autoExtend};
+        const selectedDeviceName = '{$selectedDeviceName}';
+        const allMode = selectedDeviceName === '__ALL__';
 
-    const videoEl = document.getElementById('video');
-    const debugBox = document.getElementById('debugBox');
+        const videoEl = document.getElementById('video');
+        const debugBox = document.getElementById('debugBox');
 
-    if (allMode) {
-      videoEl.style.display = 'none';
-    }
-
-    let pc = null;
-    let currentMediaSessionId = '';
-    let extendTimer = null;
-    let lastBackendData = null;
-    let logLines = [];
-
-    function setDebug(msg) {
-      if (!initialDebug) {
-        return;
-      }
-
-      debugBox.style.display = 'block';
-      logLines.push(msg);
-      if (logLines.length > 20) {
-        logLines.shift();
-      }
-      debugBox.textContent = logLines.join('\\n\\n');
-      console.log(msg);
-    }
-
-    function summarizeSdp(sdp) {
-      if (!sdp) return '(empty)';
-      const lines = sdp.split(/\\r\\n|\\n/).filter(Boolean);
-      return lines.filter(line =>
-        line.startsWith('m=') ||
-        line === 'a=sendrecv' ||
-        line === 'a=recvonly' ||
-        line === 'a=sendonly' ||
-        line === 'a=inactive' ||
-        line.startsWith('a=group:') ||
-        line.startsWith('a=mid:') ||
-        line.startsWith('a=sctp-port:')
-      ).join('\\n');
-    }
-
-    function mungeNestAnswerSdp(answerSdp) {
-      const sections = answerSdp.split(/\\r\\nm=/);
-      if (sections.length === 0) {
-        return answerSdp;
-      }
-
-      const rebuilt = sections.map((section, index) => {
-        let s = index === 0 ? section : 'm=' + section;
-
-        const isAudio = s.includes('\\nm=audio') || s.startsWith('m=audio');
-        const isVideo = s.includes('\\nm=video') || s.startsWith('m=video');
-
-        if (isAudio || isVideo) {
-          s = s.replace(/\\r?\\na=sendrecv(\\r?\\n)/g, '\\r\\na=sendonly$1');
+        if (allMode) {
+        videoEl.style.display = 'none';
         }
 
-        return s;
-      });
+        let pc = null;
+        let currentMediaSessionId = '';
+        let extendTimer = null;
+        let lastBackendData = null;
+        let logLines = [];
 
-      return rebuilt.join('\\r\\n');
-    }
-
-    async function parseJsonResponse(res) {
-      const text = await res.text();
-
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        throw new Error('Backend did not return JSON: ' + text);
-      }
-
-      if (!data.ok) {
-        throw new Error(JSON.stringify(data, null, 2));
-      }
-
-      return data;
-    }
-
-    async function callBackendGet(action) {
-      let url = backendBaseUrl + '?action=' + encodeURIComponent(action);
-      if (selectedDeviceName && !allMode) {
-        url += '&deviceName=' + encodeURIComponent(selectedDeviceName);
-      }
-
-      const res = await fetch(url, {
-        method: 'GET',
-        cache: 'no-store',
-        credentials: 'same-origin'
-      });
-
-      return await parseJsonResponse(res);
-    }
-
-    async function callBackendPost(payload) {
-      const body = new URLSearchParams();
-      Object.keys(payload).forEach((key) => body.append(key, payload[key]));
-
-      if (selectedDeviceName && !payload.deviceName && !allMode) {
-        body.append('deviceName', selectedDeviceName);
-      }
-
-      const res = await fetch(backendBaseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: body.toString(),
-        credentials: 'same-origin'
-      });
-
-      return await parseJsonResponse(res);
-    }
-
-    async function ensureAuthenticated() {
-      const data = await callBackendGet('authcheck');
-      if (!data.authenticated) {
-        window.location.href = data.loginUrl;
-        return false;
-      }
-      return true;
-    }
-
-    async function waitForIceComplete(peer) {
-      await new Promise((resolve) => {
-        if (peer.iceGatheringState === 'complete') {
-          resolve();
-          return;
+        function setDebug(msg) {
+        if (!initialDebug) {
+            return;
         }
 
-        function checkState() {
-          if (peer.iceGatheringState === 'complete') {
-            peer.removeEventListener('icegatheringstatechange', checkState);
-            resolve();
-          }
+        debugBox.style.display = 'block';
+        logLines.push(msg);
+        if (logLines.length > 20) {
+            logLines.shift();
+        }
+        debugBox.textContent = logLines.join('\\n\\n');
+        console.log(msg);
         }
 
-        peer.addEventListener('icegatheringstatechange', checkState);
-      });
-    }
-
-    function clearExtendTimer() {
-      if (extendTimer) {
-        clearInterval(extendTimer);
-        extendTimer = null;
-      }
-    }
-
-    function startExtendTimer() {
-      if (!autoExtendEnabled) {
-        return;
-      }
-
-      clearExtendTimer();
-
-      extendTimer = setInterval(async () => {
-        if (!currentMediaSessionId) {
-          return;
+        function summarizeSdp(sdp) {
+        if (!sdp) return '(empty)';
+        const lines = sdp.split(/\\r\\n|\\n/).filter(Boolean);
+        return lines.filter(line =>
+            line.startsWith('m=') ||
+            line === 'a=sendrecv' ||
+            line === 'a=recvonly' ||
+            line === 'a=sendonly' ||
+            line === 'a=inactive' ||
+            line.startsWith('a=group:') ||
+            line.startsWith('a=mid:') ||
+            line.startsWith('a=sctp-port:')
+        ).join('\\n');
         }
 
+        function mungeNestAnswerSdp(answerSdp) {
+        const sections = answerSdp.split(/\\r\\nm=/);
+        if (sections.length === 0) {
+            return answerSdp;
+        }
+
+        const rebuilt = sections.map((section, index) => {
+            let s = index === 0 ? section : 'm=' + section;
+
+            const isAudio = s.includes('\\nm=audio') || s.startsWith('m=audio');
+            const isVideo = s.includes('\\nm=video') || s.startsWith('m=video');
+
+            if (isAudio || isVideo) {
+            s = s.replace(/\\r?\\na=sendrecv(\\r?\\n)/g, '\\r\\na=sendonly$1');
+            }
+
+            return s;
+        });
+
+        return rebuilt.join('\\r\\n');
+        }
+
+        async function parseJsonResponse(res) {
+        const text = await res.text();
+
+        let data;
         try {
-          const data = await callBackendPost({
-            action: 'extend',
-            mediaSessionId: currentMediaSessionId
-          });
-          setDebug('Extended stream. New expiry: ' + (data.expiresAt || 'unknown'));
+            data = JSON.parse(text);
         } catch (e) {
-          setDebug('Auto-extend failed: ' + e.message);
+            throw new Error('Backend did not return JSON: ' + text);
         }
-      }, 240000);
+
+        if (!data.ok) {
+            throw new Error(JSON.stringify(data, null, 2));
+        }
+
+        return data;
+        }
+
+        async function callBackendGet(action) {
+        let url = backendBaseUrl + '?action=' + encodeURIComponent(action);
+        if (selectedDeviceName && !allMode) {
+            url += '&deviceName=' + encodeURIComponent(selectedDeviceName);
+        }
+
+        const res = await fetch(url, {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'same-origin'
+        });
+
+        return await parseJsonResponse(res);
+        }
+
+        async function callBackendPost(payload) {
+        const body = new URLSearchParams();
+        Object.keys(payload).forEach((key) => body.append(key, payload[key]));
+
+        if (selectedDeviceName && !payload.deviceName && !allMode) {
+            body.append('deviceName', selectedDeviceName);
+        }
+
+        const res = await fetch(backendBaseUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+            body: body.toString(),
+            credentials: 'same-origin'
+        });
+
+        return await parseJsonResponse(res);
+        }
+
+        async function ensureAuthenticated() {
+        const data = await callBackendGet('authcheck');
+        if (!data.authenticated) {
+            window.location.href = data.loginUrl;
+            return false;
+        }
+        return true;
+        }
+
+        async function waitForIceComplete(peer) {
+        await new Promise((resolve) => {
+            if (peer.iceGatheringState === 'complete') {
+            resolve();
+            return;
+            }
+
+            function checkState() {
+            if (peer.iceGatheringState === 'complete') {
+                peer.removeEventListener('icegatheringstatechange', checkState);
+                resolve();
+            }
+            }
+
+            peer.addEventListener('icegatheringstatechange', checkState);
+        });
+        }
+
+        function clearExtendTimer() {
+        if (extendTimer) {
+            clearInterval(extendTimer);
+            extendTimer = null;
+        }
+        }
+
+function startExtendTimer() {
+  if (!autoExtendEnabled) {
+    return;
+  }
+
+  clearExtendTimer();
+
+  extendTimer = setInterval(async () => {
+    if (!currentMediaSessionId) {
+      return;
     }
 
-    async function stopStream() {
-      try {
+    try {
+      const data = await callBackendPost({
+        action: 'extend',
+        mediaSessionId: currentMediaSessionId
+      });
+      setDebug('Extended stream. New expiry: ' + (data.expiresAt || 'unknown'));
+    } catch (e) {
+      const message = String(e && e.message ? e.message : e);
+
+      if (message.indexOf('"restartRequired": true') !== -1 || message.indexOf('"restartRequired":true') !== -1) {
+        setDebug('Auto-extend requested stream restart.');
+        currentMediaSessionId = '';
         clearExtendTimer();
 
-        if (currentMediaSessionId) {
-          try {
-            await callBackendPost({
-              action: 'stop',
-              mediaSessionId: currentMediaSessionId
-            });
-          } catch (e) {
-          }
-        }
-
-        currentMediaSessionId = '';
-        lastBackendData = null;
-
-        if (pc) {
-          try {
+        try {
+          if (pc) {
             pc.close();
-          } catch (e) {
           }
-          pc = null;
+        } catch (closeError) {
         }
-
+        pc = null;
         videoEl.pause();
         videoEl.srcObject = null;
-      } catch (e) {
-        setDebug('Stop failed: ' + e.message);
-      }
-    }
 
-    async function startStream() {
-      try {
-        if (allMode) {
-          return;
+        await startStream();
+        return;
+      }
+
+      setDebug('Auto-extend failed: ' + message);
+    }
+  }, 240000);
+}
+
+        async function stopStream() {
+        try {
+            clearExtendTimer();
+
+            if (currentMediaSessionId) {
+       try {
+        await callBackendPost({
+          action: 'stop',
+          mediaSessionId: currentMediaSessionId
+        });
+      } catch (e) {
+        const message = String(e && e.message ? e.message : e);
+        if (message.indexOf('"restartRequired": true') !== -1 || message.indexOf('"restartRequired":true') !== -1) {
+          setDebug('Stop ignored stale stream session.');
         }
+      }
+            }
+
+            currentMediaSessionId = '';
+            lastBackendData = null;
+
+            if (pc) {
+            try {
+                pc.close();
+            } catch (e) {
+            }
+            pc = null;
+            }
+
+            videoEl.pause();
+            videoEl.srcObject = null;
+        } catch (e) {
+            setDebug('Stop failed: ' + e.message);
+        }
+        }
+
+        async function startStream() {
+        try {
+            if (allMode) {
+            return;
+            }
 
         const ok = await ensureAuthenticated();
         if (!ok) {
@@ -3079,13 +3104,13 @@ class NestCameraViewer extends IPSModuleStrict
           setDebug('Start failed: ' + e.message + extra);
         }
       }
-    }
+        }
 
-    startStream();
-  </script>
-</body>
-</html>
-HTML;
+            startStream();
+        </script>
+        </body>
+        </html>
+        HTML;
     }
 
     private function BuildPlaceholderHtml(string $message): string
