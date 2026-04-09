@@ -231,6 +231,24 @@ class NestCameraViewer extends IPSModuleStrict
         $this->SetStatus(self::STATUS_ACTIVE);
     }
 
+
+    public function Destroy(): void
+    {
+        $this->SetTimerInterval('RefreshTimer', 0);
+
+        $this->UnregisterHook('webhook_for_google_events');
+
+        $registeredHookName = $this->ReadAttributeString('RegisteredHookName');
+        if (is_string($registeredHookName) && $registeredHookName !== '') {
+            $this->UnregisterHook($registeredHookName);
+            $this->WriteAttributeString('RegisteredHookName', '');
+        }
+
+        $this->UnregisterGeneratedCameraHooks();
+
+        parent::Destroy();
+    }
+
     public function GetConfigurationForm(): string
     {
         $form = [
