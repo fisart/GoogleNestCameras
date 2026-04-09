@@ -2917,42 +2917,67 @@ class NestCameraViewer extends IPSModuleStrict
         }
         }
 
-        function startExtendTimer() {
-        if (!autoExtendEnabled) {
-            return;
-        }
+function startExtendTimer() {
+  if (!autoExtendEnabled) {
+    return;
+  }
 
+  clearExtendTimer();
+
+  extendTimer = setInterval(async () => {
+    if (!currentMediaSessionId) {
+      return;
+    }
+
+    try {
+      const data = await callBackendPost({
+        action: 'extend',
+        mediaSessionId: currentMediaSessionId
+      });
+      setDebug('Extended stream. New expiry: ' + (data.expiresAt || 'unknown'));
+    } catch (e) {
+      const message = String(e && e.message ? e.message : e);
+
+      if (message.indexOf('"restartRequired": true') !== -1 || message.indexOf('"restartRequired":true') !== -1) {
+        setDebug('Auto-extend requested stream restart.');
+        currentMediaSessionId = '';
         clearExtendTimer();
 
-        extendTimer = setInterval(async () => {
-            if (!currentMediaSessionId) {
-            return;
-            }
-
-            try {
-            const data = await callBackendPost({
-                action: 'extend',
-                mediaSessionId: currentMediaSessionId
-            });
-            setDebug('Extended stream. New expiry: ' + (data.expiresAt || 'unknown'));
-            } catch (e) {
-            setDebug('Auto-extend failed: ' + e.message);
-            }
-        }, 240000);
+        try {
+          if (pc) {
+            pc.close();
+          }
+        } catch (closeError) {
         }
+        pc = null;
+        videoEl.pause();
+        videoEl.srcObject = null;
+
+        await startStream();
+        return;
+      }
+
+      setDebug('Auto-extend failed: ' + message);
+    }
+  }, 240000);
+}
 
         async function stopStream() {
         try {
             clearExtendTimer();
 
             if (currentMediaSessionId) {
-            try {
-                await callBackendPost({
-                action: 'stop',
-                mediaSessionId: currentMediaSessionId
-                });
-            } catch (e) {
-            }
+      try {
+        await callBackendPost({
+          action: 'stop',
+          mediaSessionId: currentMediaSessionId
+        });
+      } catch (e) {
+        const message = String(e && e.message ? e.message : e);
+        if (message.indexOf('"restartRequired": true') !== -1 || message.indexOf('"restartRequired":true') !== -1) {
+          setDebug('Stop ignored stale stream session.');
+        }
+      }
             }
 
             currentMediaSessionId = '';
