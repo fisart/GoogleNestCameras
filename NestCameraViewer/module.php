@@ -716,8 +716,10 @@ class NestCameraViewer extends IPSModuleStrict
 
         $eventHookName = 'webhook_for_google_events';
         if ($path === '/hook/' . $eventHookName) {
+            $this->LogMessage('Google event hook entered', KL_MESSAGE);
             try {
                 $rawBody = @file_get_contents('php://input');
+                $this->LogMessage('Google event raw body length: ' . (is_string($rawBody) ? strlen($rawBody) : -1), KL_MESSAGE);
                 if (!is_string($rawBody) || $rawBody === '') {
                     http_response_code(400);
                     echo 'Missing body';
