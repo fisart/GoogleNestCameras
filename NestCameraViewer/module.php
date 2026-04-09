@@ -792,14 +792,7 @@ class NestCameraViewer extends IPSModuleStrict
                     return;
                 }
 
-                    $this->SyncDeviceStructure($devices);
-                    $this->UpdateDeviceValues($devices);
-                    $this->LogMessage('Google event triggered full refresh for unknown device: ' . $deviceName, KL_MESSAGE);
 
-                    http_response_code(200);
-                    echo 'OK';
-                    return;
-                }
 
                 $device = $this->FetchSingleDevice($deviceName);
                 if ($device === null) {
