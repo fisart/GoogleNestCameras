@@ -2917,67 +2917,42 @@ class NestCameraViewer extends IPSModuleStrict
         }
         }
 
-function startExtendTimer() {
-  if (!autoExtendEnabled) {
-    return;
-  }
+        function startExtendTimer() {
+        if (!autoExtendEnabled) {
+            return;
+        }
 
-  clearExtendTimer();
-
-  extendTimer = setInterval(async () => {
-    if (!currentMediaSessionId) {
-      return;
-    }
-
-    try {
-      const data = await callBackendPost({
-        action: 'extend',
-        mediaSessionId: currentMediaSessionId
-      });
-      setDebug('Extended stream. New expiry: ' + (data.expiresAt || 'unknown'));
-    } catch (e) {
-      const message = String(e && e.message ? e.message : e);
-
-      if (message.indexOf('"restartRequired": true') !== -1 || message.indexOf('"restartRequired":true') !== -1) {
-        setDebug('Auto-extend requested stream restart.');
-        currentMediaSessionId = '';
         clearExtendTimer();
 
-        try {
-          if (pc) {
-            pc.close();
-          }
-        } catch (closeError) {
+        extendTimer = setInterval(async () => {
+            if (!currentMediaSessionId) {
+            return;
+            }
+
+            try {
+            const data = await callBackendPost({
+                action: 'extend',
+                mediaSessionId: currentMediaSessionId
+            });
+            setDebug('Extended stream. New expiry: ' + (data.expiresAt || 'unknown'));
+            } catch (e) {
+            setDebug('Auto-extend failed: ' + e.message);
+            }
+        }, 240000);
         }
-        pc = null;
-        videoEl.pause();
-        videoEl.srcObject = null;
-
-        await startStream();
-        return;
-      }
-
-      setDebug('Auto-extend failed: ' + message);
-    }
-  }, 240000);
-}
 
         async function stopStream() {
         try {
             clearExtendTimer();
 
             if (currentMediaSessionId) {
-       try {
-        await callBackendPost({
-          action: 'stop',
-          mediaSessionId: currentMediaSessionId
-        });
-      } catch (e) {
-        const message = String(e && e.message ? e.message : e);
-        if (message.indexOf('"restartRequired": true') !== -1 || message.indexOf('"restartRequired":true') !== -1) {
-          setDebug('Stop ignored stale stream session.');
-        }
-      }
+            try {
+                await callBackendPost({
+                action: 'stop',
+                mediaSessionId: currentMediaSessionId
+                });
+            } catch (e) {
+            }
             }
 
             currentMediaSessionId = '';
@@ -3104,13 +3079,13 @@ function startExtendTimer() {
           setDebug('Start failed: ' + e.message + extra);
         }
       }
-        }
+    }
 
-            startStream();
-        </script>
-        </body>
-        </html>
-        HTML;
+    startStream();
+  </script>
+</body>
+</html>
+HTML;
     }
 
     private function BuildPlaceholderHtml(string $message): string
