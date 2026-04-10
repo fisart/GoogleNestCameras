@@ -1401,6 +1401,7 @@ class NestCameraViewer extends IPSModuleStrict
                 'category_ident'  => $deviceCategoryIdent,
                 'category_id'     => $deviceCategoryID
             ];
+            $traits = $device['raw']['traits'] ?? [];
             if (!is_array($traits)) {
                 continue;
             }
