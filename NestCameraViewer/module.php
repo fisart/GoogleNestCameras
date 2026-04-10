@@ -61,6 +61,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterPropertyBoolean('AutoExtend', true);
         $this->RegisterPropertyBoolean('Debug', false);
         $this->RegisterPropertyInteger('AutoRefreshSeconds', 0);
+        $this->RegisterPropertyInteger('MotionPulseSeconds', 10);
         $this->RegisterTimer('RefreshTimer', 0, 'NESTCAM_AutoRefresh($_IPS[\'TARGET\']);');
         // Attributes
         $this->RegisterAttributeString('CachedDevicesJson', '[]');
@@ -661,7 +662,7 @@ class NestCameraViewer extends IPSModuleStrict
                 $message .= ': ' . $detail;
             }
 
-            if ($this->ReadPropertyBoolean('Debug')) if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($message, KL_MESSAGE);
+            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage($message, KL_MESSAGE);
             return;
         }
 
@@ -716,10 +717,10 @@ class NestCameraViewer extends IPSModuleStrict
 
         $eventHookName = 'webhook_for_google_events';
         if ($path === '/hook/' . $eventHookName) {
-            if ($this->ReadPropertyBoolean('Debug')) if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event hook entered', KL_MESSAGE);
+            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event hook entered', KL_MESSAGE);
             try {
                 $rawBody = @file_get_contents('php://input');
-                if ($this->ReadPropertyBoolean('Debug')) if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event raw body length: ' . (is_string($rawBody) ? strlen($rawBody) : -1), KL_MESSAGE);
+                if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event raw body length: ' . (is_string($rawBody) ? strlen($rawBody) : -1), KL_MESSAGE);
                 if (!is_string($rawBody) || $rawBody === '') {
                     http_response_code(400);
                     echo 'Missing body';
@@ -742,7 +743,7 @@ class NestCameraViewer extends IPSModuleStrict
 
                 $messageDataBase64 = (string) ($pubsubMessage['data'] ?? '');
                 if ($messageDataBase64 === '') {
-                    if ($this->ReadPropertyBoolean('Debug')) if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event received without data payload', KL_MESSAGE);
+                    if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event received without data payload', KL_MESSAGE);
                     http_response_code(200);
                     echo 'OK';
                     return;
@@ -762,14 +763,14 @@ class NestCameraViewer extends IPSModuleStrict
                     return;
                 }
 
-                if ($this->ReadPropertyBoolean('Debug')) if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage(
+                if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage(
                     'Google event received: ' . json_encode($eventPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
                     KL_MESSAGE
                 );
 
                 $deviceName = (string) ($eventPayload['resourceUpdate']['name'] ?? '');
                 if ($deviceName === '') {
-                    if ($this->ReadPropertyBoolean('Debug')) if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event contains no resourceUpdate.name', KL_MESSAGE);
+                    if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event contains no resourceUpdate.name', KL_MESSAGE);
                     http_response_code(200);
                     echo 'OK';
                     return;
@@ -784,7 +785,30 @@ class NestCameraViewer extends IPSModuleStrict
                         $deviceCatalog = [];
                     }
                 }
+                $eventEntries = $eventPayload['resourceUpdate']['events'] ?? [];
+                if (
+                    is_array($eventEntries) &&
+                    array_key_exists('sdm.devices.events.CameraMotion.Motion', $eventEntries) &&
+                    array_key_exists($deviceName, $deviceCatalog)
+                ) {
+                    $deviceCategoryID = (int) ($deviceCatalog[$deviceName]['category_id'] ?? 0);
+                    if ($deviceCategoryID > 0 && IPS_CategoryExists($deviceCategoryID)) {
+                        $motionVarID = @IPS_GetObjectIDByIdent('MotionDetected', $deviceCategoryID);
+                        if ($motionVarID !== false && IPS_VariableExists($motionVarID)) {
+                            SetValueBoolean($motionVarID, true);
+                            $this->ScheduleMotionReset($motionVarID);
+                        }
 
+                        $lastMotionVarID = @IPS_GetObjectIDByIdent('LastMotionAt', $deviceCategoryID);
+                        if ($lastMotionVarID !== false && IPS_VariableExists($lastMotionVarID)) {
+                            SetValueString($lastMotionVarID, (string) ($eventPayload['timestamp'] ?? ''));
+                        }
+
+                        if ($this->ReadPropertyBoolean('Debug')) {
+                            $this->LogMessage('Google camera motion event updated variables for device: ' . $deviceName, KL_MESSAGE);
+                        }
+                    }
+                }
                 if (!array_key_exists($deviceName, $deviceCatalog)) {
                     if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event ignored unknown device until scheduled/manual discovery refresh: ' . $deviceName, KL_MESSAGE);
                     http_response_code(200);
@@ -1377,7 +1401,42 @@ class NestCameraViewer extends IPSModuleStrict
                 'category_ident'  => $deviceCategoryIdent,
                 'category_id'     => $deviceCategoryID
             ];
+            if (!is_array($traits)) {
+                continue;
+            }
+            if (is_array($traits) && array_key_exists('sdm.devices.traits.CameraMotion', $traits)) {
+                $motionVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'MotionDetected', 'Motion Detected', VARIABLETYPE_BOOLEAN);
+                $motionCatalogKey = $deviceCategoryIdent . '__MotionDetected';
+                $knownVariableCatalogKeys[] = $motionCatalogKey;
+                $variableCatalog[$motionCatalogKey] = [
+                    'device_name'    => $deviceName,
+                    'device_type'    => (string) ($device['type'] ?? ''),
+                    'trait'          => 'sdm.devices.events.CameraMotion.Motion',
+                    'field_path'     => 'event',
+                    'full_key'       => 'sdm.devices.events.CameraMotion.Motion',
+                    'variable_ident' => 'MotionDetected',
+                    'object_id'      => $motionVarID,
+                    'value_type'     => 'boolean',
+                    'writable'       => false,
+                    'command_key'    => null
+                ];
 
+                $lastMotionVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'LastMotionAt', 'Last Motion At', VARIABLETYPE_STRING);
+                $lastMotionCatalogKey = $deviceCategoryIdent . '__LastMotionAt';
+                $knownVariableCatalogKeys[] = $lastMotionCatalogKey;
+                $variableCatalog[$lastMotionCatalogKey] = [
+                    'device_name'    => $deviceName,
+                    'device_type'    => (string) ($device['type'] ?? ''),
+                    'trait'          => 'sdm.devices.events.CameraMotion.Motion',
+                    'field_path'     => 'timestamp',
+                    'full_key'       => 'sdm.devices.events.CameraMotion.Motion.timestamp',
+                    'variable_ident' => 'LastMotionAt',
+                    'object_id'      => $lastMotionVarID,
+                    'value_type'     => 'string',
+                    'writable'       => false,
+                    'command_key'    => null
+                ];
+            }
             $traits = $device['raw']['traits'] ?? [];
             if (!is_array($traits)) {
                 continue;
@@ -1418,6 +1477,39 @@ class NestCameraViewer extends IPSModuleStrict
         $this->WriteAttributeString('KnownVariableCatalogKeysJson', json_encode(array_values(array_unique($knownVariableCatalogKeys))));
         $this->WriteAttributeString('DeviceCatalogJson', json_encode($deviceCatalog));
         $this->WriteAttributeString('VariableCatalogJson', json_encode($variableCatalog));
+    }
+
+    private function EnsureSpecialDeviceVariable(int $parentID, string $ident, string $name, int $variableType): int
+    {
+        $existing = @IPS_GetObjectIDByIdent($ident, $parentID);
+        if ($existing !== false) {
+            IPS_SetName($existing, $name);
+            IPS_SetVariableCustomAction($existing, 0);
+            IPS_SetVariableCustomProfile($existing, '');
+            return $existing;
+        }
+
+        $varID = IPS_CreateVariable($variableType);
+        IPS_SetParent($varID, $parentID);
+        IPS_SetIdent($varID, $ident);
+        IPS_SetName($varID, $name);
+        IPS_SetVariableCustomAction($varID, 0);
+        IPS_SetVariableCustomProfile($varID, '');
+
+        return $varID;
+    }
+
+
+    private function ScheduleMotionReset(int $variableID): void
+    {
+        $seconds = max(1, $this->ReadPropertyInteger('MotionPulseSeconds'));
+
+        $script = '<?php '
+            . 'if (IPS_VariableExists(' . $variableID . ')) { '
+            . 'SetValueBoolean(' . $variableID . ', false); '
+            . '}';
+
+        IPS_RunScriptText($script, false, $seconds);
     }
 
     private function UpdateDeviceValues(array $devices): void
