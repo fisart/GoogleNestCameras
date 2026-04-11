@@ -62,6 +62,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterPropertyBoolean('Debug', false);
         $this->RegisterPropertyInteger('AutoRefreshSeconds', 0);
         $this->RegisterPropertyInteger('MotionPulseSeconds', 10);
+        $this->RegisterPropertyString('ManualEventDeviceMappings', '[]');
         $this->RegisterTimer('RefreshTimer', 0, 'NESTCAM_AutoRefresh($_IPS[\'TARGET\']);');
         $this->RegisterTimer('PulseResetTimer', 0, 'NESTCAM_ProcessPulseReset($_IPS[\'TARGET\']);');
         // Attributes
@@ -1371,7 +1372,7 @@ class NestCameraViewer extends IPSModuleStrict
         }
 
         $json = $this->ReadPropertyString('ManualEventDeviceMappings');
-        if ($json === '') {
+        if (!is_string($json) || $json === '') {
             $rows = [];
         } else {
             $rows = json_decode($json, true);
