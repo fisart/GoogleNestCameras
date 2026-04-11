@@ -1438,6 +1438,108 @@ class NestCameraViewer extends IPSModuleStrict
                     'command_key'    => null
                 ];
             }
+
+            if (is_array($traits) && array_key_exists('sdm.devices.traits.CameraPerson', $traits)) {
+                $personVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'PersonDetected', 'Person Detected', VARIABLETYPE_BOOLEAN);
+                $personCatalogKey = $deviceCategoryIdent . '__PersonDetected';
+                $knownVariableCatalogKeys[] = $personCatalogKey;
+                $variableCatalog[$personCatalogKey] = [
+                    'device_name'    => $deviceName,
+                    'device_type'    => (string) ($device['type'] ?? ''),
+                    'trait'          => 'sdm.devices.events.CameraPerson.Person',
+                    'field_path'     => 'event',
+                    'full_key'       => 'sdm.devices.events.CameraPerson.Person',
+                    'variable_ident' => 'PersonDetected',
+                    'object_id'      => $personVarID,
+                    'value_type'     => 'boolean',
+                    'writable'       => false,
+                    'command_key'    => null
+                ];
+
+                $lastPersonVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'LastPersonAt', 'Last Person At', VARIABLETYPE_STRING);
+                $lastPersonCatalogKey = $deviceCategoryIdent . '__LastPersonAt';
+                $knownVariableCatalogKeys[] = $lastPersonCatalogKey;
+                $variableCatalog[$lastPersonCatalogKey] = [
+                    'device_name'    => $deviceName,
+                    'device_type'    => (string) ($device['type'] ?? ''),
+                    'trait'          => 'sdm.devices.events.CameraPerson.Person',
+                    'field_path'     => 'timestamp',
+                    'full_key'       => 'sdm.devices.events.CameraPerson.Person.timestamp',
+                    'variable_ident' => 'LastPersonAt',
+                    'object_id'      => $lastPersonVarID,
+                    'value_type'     => 'string',
+                    'writable'       => false,
+                    'command_key'    => null
+                ];
+            }
+
+            if (is_array($traits) && array_key_exists('sdm.devices.traits.CameraSound', $traits)) {
+                $soundVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'SoundDetected', 'Sound Detected', VARIABLETYPE_BOOLEAN);
+                $soundCatalogKey = $deviceCategoryIdent . '__SoundDetected';
+                $knownVariableCatalogKeys[] = $soundCatalogKey;
+                $variableCatalog[$soundCatalogKey] = [
+                    'device_name'    => $deviceName,
+                    'device_type'    => (string) ($device['type'] ?? ''),
+                    'trait'          => 'sdm.devices.events.CameraSound.Sound',
+                    'field_path'     => 'event',
+                    'full_key'       => 'sdm.devices.events.CameraSound.Sound',
+                    'variable_ident' => 'SoundDetected',
+                    'object_id'      => $soundVarID,
+                    'value_type'     => 'boolean',
+                    'writable'       => false,
+                    'command_key'    => null
+                ];
+
+                $lastSoundVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'LastSoundAt', 'Last Sound At', VARIABLETYPE_STRING);
+                $lastSoundCatalogKey = $deviceCategoryIdent . '__LastSoundAt';
+                $knownVariableCatalogKeys[] = $lastSoundCatalogKey;
+                $variableCatalog[$lastSoundCatalogKey] = [
+                    'device_name'    => $deviceName,
+                    'device_type'    => (string) ($device['type'] ?? ''),
+                    'trait'          => 'sdm.devices.events.CameraSound.Sound',
+                    'field_path'     => 'timestamp',
+                    'full_key'       => 'sdm.devices.events.CameraSound.Sound.timestamp',
+                    'variable_ident' => 'LastSoundAt',
+                    'object_id'      => $lastSoundVarID,
+                    'value_type'     => 'string',
+                    'writable'       => false,
+                    'command_key'    => null
+                ];
+            }
+
+            if (is_array($traits) && array_key_exists('sdm.devices.traits.DoorbellChime', $traits)) {
+                $chimeVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'DoorbellChimeDetected', 'Doorbell Chime Detected', VARIABLETYPE_BOOLEAN);
+                $chimeCatalogKey = $deviceCategoryIdent . '__DoorbellChimeDetected';
+                $knownVariableCatalogKeys[] = $chimeCatalogKey;
+                $variableCatalog[$chimeCatalogKey] = [
+                    'device_name'    => $deviceName,
+                    'device_type'    => (string) ($device['type'] ?? ''),
+                    'trait'          => 'sdm.devices.events.DoorbellChime.Chime',
+                    'field_path'     => 'event',
+                    'full_key'       => 'sdm.devices.events.DoorbellChime.Chime',
+                    'variable_ident' => 'DoorbellChimeDetected',
+                    'object_id'      => $chimeVarID,
+                    'value_type'     => 'boolean',
+                    'writable'       => false,
+                    'command_key'    => null
+                ];
+
+                $lastChimeVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'LastDoorbellChimeAt', 'Last Doorbell Chime At', VARIABLETYPE_STRING);
+                $lastChimeCatalogKey = $deviceCategoryIdent . '__LastDoorbellChimeAt';
+                $knownVariableCatalogKeys[] = $lastChimeCatalogKey;
+                $variableCatalog[$lastChimeCatalogKey] = [
+                    'device_name'    => $deviceName,
+                    'device_type'    => (string) ($device['type'] ?? ''),
+                    'trait'          => 'sdm.devices.events.DoorbellChime.Chime',
+                    'field_path'     => 'timestamp',
+                    'full_key'       => 'sdm.devices.events.DoorbellChime.Chime.timestamp',
+                    'variable_ident' => 'LastDoorbellChimeAt',
+                    'object_id'      => $lastChimeVarID,
+                    'value_type'     => 'string',
+                    'writable'       => false,
+                    'command_key'    => null
+                ];
+            }
             $traits = $device['raw']['traits'] ?? [];
             if (!is_array($traits)) {
                 continue;
