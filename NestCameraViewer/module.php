@@ -728,6 +728,11 @@ class NestCameraViewer extends IPSModuleStrict
             ],
             [
                 'type'    => 'Button',
+                'caption' => 'Clear Unknown Event Devices',
+                'onClick' => 'NESTCAM_ClearUnknownEventDevices($id);'
+            ],
+            [
+                'type'    => 'Button',
                 'caption' => 'Rebuild Camera Viewer HTML',
                 'onClick' => 'NESTCAM_RebuildViewer($id);'
             ]
@@ -1310,8 +1315,8 @@ class NestCameraViewer extends IPSModuleStrict
     public function AssignUnknownEventDevice(string $eventDeviceID, string $mappedDeviceID): void
     {
         $this->SaveManualEventDeviceMapping($eventDeviceID, $mappedDeviceID);
+        $this->RemoveUnknownEventDevice($eventDeviceID);
     }
-
 
     private function RegisterUnknownEventDevice(string $eventDeviceName, array $eventPayload): void
     {
@@ -1346,6 +1351,45 @@ class NestCameraViewer extends IPSModuleStrict
         $this->WriteAttributeString('UnknownEventDevicesJson', json_encode($unknown));
     }
 
+
+    public function RemoveManualEventDeviceMapping(string $eventDeviceID): void
+    {
+        $eventDeviceID = trim($eventDeviceID);
+        if ($eventDeviceID === '') {
+            throw new Exception('EventDeviceID is required');
+        }
+
+        $json = $this->ReadPropertyString('ManualEventDeviceMappings');
+        if (!is_string($json) || $json === '') {
+            $rows = [];
+        } else {
+            $rows = json_decode($json, true);
+            if (!is_array($rows)) {
+                $rows = [];
+            }
+        }
+
+        $newRows = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            if ((string) ($row['EventDeviceID'] ?? '') === $eventDeviceID) {
+                continue;
+            }
+
+            $newRows[] = $row;
+        }
+
+        IPS_SetProperty($this->InstanceID, 'ManualEventDeviceMappings', json_encode(array_values($newRows)));
+        IPS_ApplyChanges($this->InstanceID);
+    }
+
+    public function ClearUnknownEventDevices(): void
+    {
+        $this->WriteAttributeString('UnknownEventDevicesJson', '{}');
+    }
     private function GetUnknownEventDevices(): array
     {
         $json = $this->ReadAttributeString('UnknownEventDevicesJson');
@@ -1361,7 +1405,28 @@ class NestCameraViewer extends IPSModuleStrict
         return $rows;
     }
 
+    private function RemoveUnknownEventDevice(string $eventDeviceID): void
+    {
+        $eventDeviceID = trim($eventDeviceID);
+        if ($eventDeviceID === '') {
+            return;
+        }
 
+        $json = $this->ReadAttributeString('UnknownEventDevicesJson');
+        if (!is_string($json) || $json === '') {
+            return;
+        }
+
+        $rows = json_decode($json, true);
+        if (!is_array($rows)) {
+            return;
+        }
+
+        if (isset($rows[$eventDeviceID])) {
+            unset($rows[$eventDeviceID]);
+            $this->WriteAttributeString('UnknownEventDevicesJson', json_encode($rows));
+        }
+    }
     private function SaveManualEventDeviceMapping(string $eventDeviceID, string $mappedDeviceID): void
     {
         $eventDeviceID = trim($eventDeviceID);
