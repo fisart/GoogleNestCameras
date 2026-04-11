@@ -798,7 +798,8 @@ class NestCameraViewer extends IPSModuleStrict
                         ' knownDevice=' . ($isKnownDevice ? 'yes' : 'no'),
                     KL_MESSAGE
                 );
-
+                if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X1B catalogHasExactKey=' . (array_key_exists($deviceName, $deviceCatalog) ? 'yes' : 'no') . ' incomingDevice=' . $deviceName, KL_MESSAGE);
+                if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X1C catalogKeys=' . json_encode(array_keys($deviceCatalog), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), KL_MESSAGE);
                 if ($hasMotionEvent && $isKnownDevice) {
                     if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X2', KL_MESSAGE);
 
