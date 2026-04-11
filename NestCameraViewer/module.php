@@ -778,73 +778,117 @@ class NestCameraViewer extends IPSModuleStrict
                     return;
                 }
 
-                $deviceCatalogJson = $this->ReadAttributeString('DeviceCatalogJson');
-                if (!is_string($deviceCatalogJson) || $deviceCatalogJson === '') {
-                    $deviceCatalog = [];
-                } else {
-                    $deviceCatalog = json_decode($deviceCatalogJson, true);
-                    if (!is_array($deviceCatalog)) {
-                        $deviceCatalog = [];
-                    }
-                }
-                if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X1 device=' . $deviceName, KL_MESSAGE);
+                $resolvedDevice = $this->ResolveEventDeviceEntry($deviceName);
 
+                if ($this->ReadPropertyBoolean('Debug')) {
+                    $this->LogMessage(
+                        'Google EVENT resolve deviceName=' . $deviceName .
+                            ' resolved=' . ($resolvedDevice !== null ? 'yes' : 'no') .
+                            ($resolvedDevice !== null ? ' category_id=' . (string) ($resolvedDevice['category_id'] ?? 0) : ''),
+                        KL_MESSAGE
+                    );
+                }
                 $eventEntries = $eventPayload['resourceUpdate']['events'] ?? [];
                 $hasMotionEvent = is_array($eventEntries) && array_key_exists('sdm.devices.events.CameraMotion.Motion', $eventEntries);
-                $isKnownDevice = array_key_exists($deviceName, $deviceCatalog);
+                $hasPersonEvent = is_array($eventEntries) && array_key_exists('sdm.devices.events.CameraPerson.Person', $eventEntries);
 
-                if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage(
-                    'Google MOTION X1A hasMotionEvent=' . ($hasMotionEvent ? 'yes' : 'no') .
-                        ' knownDevice=' . ($isKnownDevice ? 'yes' : 'no'),
-                    KL_MESSAGE
-                );
-                if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X1B catalogHasExactKey=' . (array_key_exists($deviceName, $deviceCatalog) ? 'yes' : 'no') . ' incomingDevice=' . $deviceName, KL_MESSAGE);
-                if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X1C catalogKeys=' . json_encode(array_keys($deviceCatalog), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), KL_MESSAGE);
-                if ($hasMotionEvent && $isKnownDevice) {
-                    if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X2', KL_MESSAGE);
+                if ($this->ReadPropertyBoolean('Debug')) {
+                    $this->LogMessage(
+                        'Google EVENT flags motion=' . ($hasMotionEvent ? 'yes' : 'no') .
+                            ' person=' . ($hasPersonEvent ? 'yes' : 'no'),
+                        KL_MESSAGE
+                    );
+                }
 
-                    $deviceCategoryID = (int) ($deviceCatalog[$deviceName]['category_id'] ?? 0);
-                    if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X2A categoryID=' . $deviceCategoryID, KL_MESSAGE);
+                if (($hasMotionEvent || $hasPersonEvent) && $resolvedDevice !== null) {
+                    $deviceCategoryID = (int) ($resolvedDevice['category_id'] ?? 0);
 
-                    $categoryExists = ($deviceCategoryID > 0 && IPS_CategoryExists($deviceCategoryID));
-                    if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X2B categoryExists=' . ($categoryExists ? 'yes' : 'no'), KL_MESSAGE);
+                    if ($this->ReadPropertyBoolean('Debug')) {
+                        $this->LogMessage(
+                            'Google EVENT matched device category_id=' . $deviceCategoryID .
+                                ' short_id=' . (string) ($resolvedDevice['device_id_short'] ?? ''),
+                            KL_MESSAGE
+                        );
+                    }
 
-                    if ($categoryExists) {
-                        $motionVarID = @IPS_GetObjectIDByIdent('MotionDetected', $deviceCategoryID);
-                        if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X3 motionVarID=' . json_encode($motionVarID), KL_MESSAGE);
-
-                        $motionVarExists = ($motionVarID !== false && IPS_VariableExists($motionVarID));
-                        if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X3A motionVarExists=' . ($motionVarExists ? 'yes' : 'no'), KL_MESSAGE);
-
-                        if ($motionVarExists) {
-                            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X4 setting MotionDetected=true', KL_MESSAGE);
-                            SetValueBoolean($motionVarID, true);
-                            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X4A after set value=' . (GetValueBoolean($motionVarID) ? 'true' : 'false'), KL_MESSAGE);
-
-                            $this->ScheduleMotionReset($motionVarID);
-                            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X4B reset scheduled pulseSeconds=' . $this->ReadPropertyInteger('MotionPulseSeconds'), KL_MESSAGE);
-                        }
-
-                        $lastMotionVarID = @IPS_GetObjectIDByIdent('LastMotionAt', $deviceCategoryID);
-                        if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X5 lastMotionVarID=' . json_encode($lastMotionVarID), KL_MESSAGE);
-
-                        $lastMotionVarExists = ($lastMotionVarID !== false && IPS_VariableExists($lastMotionVarID));
-                        if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X5A lastMotionVarExists=' . ($lastMotionVarExists ? 'yes' : 'no'), KL_MESSAGE);
-
-                        if ($lastMotionVarExists) {
-                            $motionTimestamp = (string) ($eventPayload['timestamp'] ?? '');
-                            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X6 writing LastMotionAt=' . $motionTimestamp, KL_MESSAGE);
-                            SetValueString($lastMotionVarID, $motionTimestamp);
-                            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google MOTION X6A after set LastMotionAt=' . GetValueString($lastMotionVarID), KL_MESSAGE);
-                        }
+                    if ($hasMotionEvent) {
+                        $motionVarID = (int) ($resolvedDevice['motion_var_id'] ?? 0);
+                        $lastMotionVarID = (int) ($resolvedDevice['last_motion_var_id'] ?? 0);
 
                         if ($this->ReadPropertyBoolean('Debug')) {
-                            $this->LogMessage('Google camera motion event updated variables for device: ' . $deviceName, KL_MESSAGE);
+                            $this->LogMessage(
+                                'Google MOTION varIDs motion=' . $motionVarID . ' last=' . $lastMotionVarID,
+                                KL_MESSAGE
+                            );
+                        }
+
+                        if ($motionVarID > 0 && IPS_VariableExists($motionVarID)) {
+                            SetValueBoolean($motionVarID, true);
+                            $this->ScheduleMotionReset($motionVarID);
+
+                            if ($this->ReadPropertyBoolean('Debug')) {
+                                $this->LogMessage(
+                                    'Google MOTION set MotionDetected=true varID=' . $motionVarID,
+                                    KL_MESSAGE
+                                );
+                            }
+                        }
+
+                        if ($lastMotionVarID > 0 && IPS_VariableExists($lastMotionVarID)) {
+                            SetValueString($lastMotionVarID, (string) ($eventPayload['timestamp'] ?? ''));
+
+                            if ($this->ReadPropertyBoolean('Debug')) {
+                                $this->LogMessage(
+                                    'Google MOTION set LastMotionAt=' . (string) ($eventPayload['timestamp'] ?? '') . ' varID=' . $lastMotionVarID,
+                                    KL_MESSAGE
+                                );
+                            }
+                        }
+                    }
+
+                    if ($hasPersonEvent) {
+                        $personVarID = (int) ($resolvedDevice['person_var_id'] ?? 0);
+                        $lastPersonVarID = (int) ($resolvedDevice['last_person_var_id'] ?? 0);
+
+                        if ($this->ReadPropertyBoolean('Debug')) {
+                            $this->LogMessage(
+                                'Google PERSON varIDs person=' . $personVarID . ' last=' . $lastPersonVarID,
+                                KL_MESSAGE
+                            );
+                        }
+
+                        if ($personVarID > 0 && IPS_VariableExists($personVarID)) {
+                            SetValueBoolean($personVarID, true);
+                            $this->ScheduleMotionReset($personVarID);
+
+                            if ($this->ReadPropertyBoolean('Debug')) {
+                                $this->LogMessage(
+                                    'Google PERSON set PersonDetected=true varID=' . $personVarID,
+                                    KL_MESSAGE
+                                );
+                            }
+                        }
+
+                        if ($lastPersonVarID > 0 && IPS_VariableExists($lastPersonVarID)) {
+                            SetValueString($lastPersonVarID, (string) ($eventPayload['timestamp'] ?? ''));
+
+                            if ($this->ReadPropertyBoolean('Debug')) {
+                                $this->LogMessage(
+                                    'Google PERSON set LastPersonAt=' . (string) ($eventPayload['timestamp'] ?? '') . ' varID=' . $lastPersonVarID,
+                                    KL_MESSAGE
+                                );
+                            }
                         }
                     }
                 }
-                if (!array_key_exists($deviceName, $deviceCatalog)) {
-                    if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event ignored unknown device until scheduled/manual discovery refresh: ' . $deviceName, KL_MESSAGE);
+
+                if ($resolvedDevice === null) {
+                    if ($this->ReadPropertyBoolean('Debug')) {
+                        $this->LogMessage(
+                            'Google event unresolved device after full-name and short-id matching: ' . $deviceName,
+                            KL_MESSAGE
+                        );
+                    }
                     http_response_code(200);
                     echo 'OK';
                     return;
@@ -1631,6 +1675,36 @@ class NestCameraViewer extends IPSModuleStrict
         $this->WriteAttributeString('KnownVariableCatalogKeysJson', json_encode(array_values(array_unique($knownVariableCatalogKeys))));
         $this->WriteAttributeString('DeviceCatalogJson', json_encode($deviceCatalog));
         $this->WriteAttributeString('VariableCatalogJson', json_encode($variableCatalog));
+    }
+
+    private function ResolveEventDeviceEntry(string $eventDeviceName): ?array
+    {
+        $deviceCatalogJson = $this->ReadAttributeString('DeviceCatalogJson');
+        if (!is_string($deviceCatalogJson) || $deviceCatalogJson === '') {
+            return null;
+        }
+
+        $deviceCatalog = json_decode($deviceCatalogJson, true);
+        if (!is_array($deviceCatalog)) {
+            return null;
+        }
+
+        if (isset($deviceCatalog[$eventDeviceName]) && is_array($deviceCatalog[$eventDeviceName])) {
+            return $deviceCatalog[$eventDeviceName];
+        }
+
+        $eventShortId = $this->GetDeviceShortId($eventDeviceName);
+        foreach ($deviceCatalog as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            if ((string) ($entry['device_id_short'] ?? '') === $eventShortId) {
+                return $entry;
+            }
+        }
+
+        return null;
     }
 
     private function EnsureSpecialDeviceVariable(int $parentID, string $ident, string $name, int $variableType): int
