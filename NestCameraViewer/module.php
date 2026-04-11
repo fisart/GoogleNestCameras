@@ -362,7 +362,7 @@ class NestCameraViewer extends IPSModuleStrict
                 'CategoryID' => (int) ($entry['category_id'] ?? 0)
             ];
         }
-                $manualMappingOptions = [
+        $manualMappingOptions = [
             [
                 'caption' => '',
                 'value'   => ''
@@ -695,7 +695,6 @@ class NestCameraViewer extends IPSModuleStrict
                 'onClick' => 'NESTCAM_ExchangeAuthorizationCode($id);'
             ],
             [
-            [
                 'type'    => 'Button',
                 'caption' => 'Refresh Google SDM Devices',
                 'onClick' => 'NESTCAM_RefreshDevices($id);'
@@ -731,7 +730,7 @@ class NestCameraViewer extends IPSModuleStrict
                 'caption' => 'Rebuild Camera Viewer HTML',
                 'onClick' => 'NESTCAM_RebuildViewer($id);'
             ]
-        ]
+        ];
 
         return json_encode($form);
     }
@@ -964,19 +963,19 @@ class NestCameraViewer extends IPSModuleStrict
                     }
                 }
 
-if ($resolvedDevice === null) {
-    $this->RegisterUnknownEventDevice($deviceName, $eventPayload);
+                if ($resolvedDevice === null) {
+                    $this->RegisterUnknownEventDevice($deviceName, $eventPayload);
 
-    if ($this->ReadPropertyBoolean('Debug')) {
-        $this->LogMessage(
-            'Google event unresolved device after full-name and short-id matching: ' . $deviceName,
-            KL_MESSAGE
-        );
-    }
-    http_response_code(200);
-    echo 'OK';
-    return;
-}
+                    if ($this->ReadPropertyBoolean('Debug')) {
+                        $this->LogMessage(
+                            'Google event unresolved device after full-name and short-id matching: ' . $deviceName,
+                            KL_MESSAGE
+                        );
+                    }
+                    http_response_code(200);
+                    echo 'OK';
+                    return;
+                }
 
 
 
@@ -1308,103 +1307,103 @@ if ($resolvedDevice === null) {
     }
 
     public function AssignUnknownEventDevice(string $eventDeviceID, string $mappedDeviceID): void
-{
-    $this->SaveManualEventDeviceMapping($eventDeviceID, $mappedDeviceID);
-}
+    {
+        $this->SaveManualEventDeviceMapping($eventDeviceID, $mappedDeviceID);
+    }
 
 
     private function RegisterUnknownEventDevice(string $eventDeviceName, array $eventPayload): void
-{
-    $eventDeviceID = $this->GetDeviceShortId($eventDeviceName);
-    if ($eventDeviceID === '') {
-        return;
-    }
-
-    $json = $this->ReadAttributeString('UnknownEventDevicesJson');
-    if (!is_string($json) || $json === '') {
-        $unknown = [];
-    } else {
-        $unknown = json_decode($json, true);
-        if (!is_array($unknown)) {
-            $unknown = [];
+    {
+        $eventDeviceID = $this->GetDeviceShortId($eventDeviceName);
+        if ($eventDeviceID === '') {
+            return;
         }
+
+        $json = $this->ReadAttributeString('UnknownEventDevicesJson');
+        if (!is_string($json) || $json === '') {
+            $unknown = [];
+        } else {
+            $unknown = json_decode($json, true);
+            if (!is_array($unknown)) {
+                $unknown = [];
+            }
+        }
+
+        $eventEntries = $eventPayload['resourceUpdate']['events'] ?? [];
+        $eventTypes = [];
+        if (is_array($eventEntries)) {
+            $eventTypes = array_keys($eventEntries);
+        }
+
+        $unknown[$eventDeviceID] = [
+            'EventDeviceID'    => $eventDeviceID,
+            'LastFullEventName' => $eventDeviceName,
+            'LastEventType'    => isset($eventTypes[0]) ? (string) $eventTypes[0] : '',
+            'LastSeenAt'       => (string) ($eventPayload['timestamp'] ?? '')
+        ];
+
+        $this->WriteAttributeString('UnknownEventDevicesJson', json_encode($unknown));
     }
 
-    $eventEntries = $eventPayload['resourceUpdate']['events'] ?? [];
-    $eventTypes = [];
-    if (is_array($eventEntries)) {
-        $eventTypes = array_keys($eventEntries);
-    }
+    private function GetUnknownEventDevices(): array
+    {
+        $json = $this->ReadAttributeString('UnknownEventDevicesJson');
+        if (!is_string($json) || $json === '') {
+            return [];
+        }
 
-    $unknown[$eventDeviceID] = [
-        'EventDeviceID'    => $eventDeviceID,
-        'LastFullEventName'=> $eventDeviceName,
-        'LastEventType'    => isset($eventTypes[0]) ? (string) $eventTypes[0] : '',
-        'LastSeenAt'       => (string) ($eventPayload['timestamp'] ?? '')
-    ];
-
-    $this->WriteAttributeString('UnknownEventDevicesJson', json_encode($unknown));
-}
-
-private function GetUnknownEventDevices(): array
-{
-    $json = $this->ReadAttributeString('UnknownEventDevicesJson');
-    if (!is_string($json) || $json === '') {
-        return [];
-    }
-
-    $rows = json_decode($json, true);
-    if (!is_array($rows)) {
-        return [];
-    }
-
-    return $rows;
-}
-
-
-private function SaveManualEventDeviceMapping(string $eventDeviceID, string $mappedDeviceID): void
-{
-    $eventDeviceID = trim($eventDeviceID);
-    $mappedDeviceID = trim($mappedDeviceID);
-
-    if ($eventDeviceID === '' || $mappedDeviceID === '') {
-        throw new Exception('EventDeviceID and MappedDeviceID are required');
-    }
-
-    $json = $this->ReadPropertyString('ManualEventDeviceMappings');
-    if ($json === '') {
-        $rows = [];
-    } else {
         $rows = json_decode($json, true);
         if (!is_array($rows)) {
+            return [];
+        }
+
+        return $rows;
+    }
+
+
+    private function SaveManualEventDeviceMapping(string $eventDeviceID, string $mappedDeviceID): void
+    {
+        $eventDeviceID = trim($eventDeviceID);
+        $mappedDeviceID = trim($mappedDeviceID);
+
+        if ($eventDeviceID === '' || $mappedDeviceID === '') {
+            throw new Exception('EventDeviceID and MappedDeviceID are required');
+        }
+
+        $json = $this->ReadPropertyString('ManualEventDeviceMappings');
+        if ($json === '') {
             $rows = [];
-        }
-    }
-
-    $updated = false;
-    foreach ($rows as &$row) {
-        if (!is_array($row)) {
-            continue;
+        } else {
+            $rows = json_decode($json, true);
+            if (!is_array($rows)) {
+                $rows = [];
+            }
         }
 
-        if ((string) ($row['EventDeviceID'] ?? '') === $eventDeviceID) {
-            $row['MappedDeviceID'] = $mappedDeviceID;
-            $updated = true;
-            break;
+        $updated = false;
+        foreach ($rows as &$row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            if ((string) ($row['EventDeviceID'] ?? '') === $eventDeviceID) {
+                $row['MappedDeviceID'] = $mappedDeviceID;
+                $updated = true;
+                break;
+            }
         }
-    }
-    unset($row);
+        unset($row);
 
-    if (!$updated) {
-        $rows[] = [
-            'EventDeviceID'  => $eventDeviceID,
-            'MappedDeviceID' => $mappedDeviceID
-        ];
-    }
+        if (!$updated) {
+            $rows[] = [
+                'EventDeviceID'  => $eventDeviceID,
+                'MappedDeviceID' => $mappedDeviceID
+            ];
+        }
 
-    IPS_SetProperty($this->InstanceID, 'ManualEventDeviceMappings', json_encode(array_values($rows)));
-    IPS_ApplyChanges($this->InstanceID);
-}
+        IPS_SetProperty($this->InstanceID, 'ManualEventDeviceMappings', json_encode(array_values($rows)));
+        IPS_ApplyChanges($this->InstanceID);
+    }
 
 
 
