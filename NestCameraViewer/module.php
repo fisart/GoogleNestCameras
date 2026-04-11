@@ -79,6 +79,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterAttributeString('KnownDeviceCategoryIdentsJson', '[]');
         $this->RegisterAttributeString('KnownVariableCatalogKeysJson', '[]');
         $this->RegisterAttributeInteger('ManagedActionScriptID', 0);
+        $this->RegisterAttributeString('UnknownEventDevicesJson', '{}');
         $this->RegisterAttributeString('PulseResetQueueJson', '{}');
         // Viewer variables
         $this->RegisterVariableString('ViewerHTML', 'Viewer', '~HTMLBox', 10);
@@ -361,6 +362,60 @@ class NestCameraViewer extends IPSModuleStrict
                 'CategoryID' => (int) ($entry['category_id'] ?? 0)
             ];
         }
+                $manualMappingOptions = [
+            [
+                'caption' => '',
+                'value'   => ''
+            ]
+        ];
+
+        foreach ($deviceCatalog as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $label = (string) ($entry['label'] ?? '');
+            $type = (string) ($entry['device_type'] ?? '');
+            $deviceName = (string) ($entry['device_name'] ?? '');
+            $categoryID = (int) ($entry['category_id'] ?? 0);
+            $shortID = (string) ($entry['device_id_short'] ?? '');
+
+            if ($shortID === '') {
+                continue;
+            }
+
+            $manualMappingOptions[] = [
+                'caption' => $label . ' | ' . $type . ' | ' . $deviceName . ' | Category ' . $categoryID,
+                'value'   => $shortID
+            ];
+        }
+
+        $unknownEventDeviceOptions = [
+            [
+                'caption' => '',
+                'value'   => ''
+            ]
+        ];
+
+        $unknownEventDevices = $this->GetUnknownEventDevices();
+        foreach ($unknownEventDevices as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $eventDeviceID = (string) ($row['EventDeviceID'] ?? '');
+            if ($eventDeviceID === '') {
+                continue;
+            }
+
+            $lastEventType = (string) ($row['LastEventType'] ?? '');
+            $lastSeenAt = (string) ($row['LastSeenAt'] ?? '');
+
+            $unknownEventDeviceOptions[] = [
+                'caption' => $eventDeviceID . ' | ' . $lastEventType . ' | ' . $lastSeenAt,
+                'value'   => $eventDeviceID
+            ];
+        }
         $form['elements'] = [
             [
                 'type'    => 'Label',
@@ -640,9 +695,36 @@ class NestCameraViewer extends IPSModuleStrict
                 'onClick' => 'NESTCAM_ExchangeAuthorizationCode($id);'
             ],
             [
+            [
                 'type'    => 'Button',
                 'caption' => 'Refresh Google SDM Devices',
                 'onClick' => 'NESTCAM_RefreshDevices($id);'
+            ],
+            [
+                'type'    => 'PopupButton',
+                'caption' => 'Map Unknown Event Device',
+                'popup'   => [
+                    'caption' => 'Map Unknown Event Device',
+                    'items'   => [
+                        [
+                            'type'    => 'Select',
+                            'name'    => 'UnknownEventDeviceID',
+                            'caption' => 'Unknown Event Device ID',
+                            'options' => $unknownEventDeviceOptions
+                        ],
+                        [
+                            'type'    => 'Select',
+                            'name'    => 'MappedKnownDeviceID',
+                            'caption' => 'Map To Known Device',
+                            'options' => $manualMappingOptions
+                        ],
+                        [
+                            'type'    => 'Button',
+                            'caption' => 'Save Mapping',
+                            'onClick' => 'NESTCAM_AssignUnknownEventDevice($id, $UnknownEventDeviceID, $MappedKnownDeviceID);'
+                        ]
+                    ]
+                ]
             ],
             [
                 'type'    => 'Button',
@@ -882,17 +964,19 @@ class NestCameraViewer extends IPSModuleStrict
                     }
                 }
 
-                if ($resolvedDevice === null) {
-                    if ($this->ReadPropertyBoolean('Debug')) {
-                        $this->LogMessage(
-                            'Google event unresolved device after full-name and short-id matching: ' . $deviceName,
-                            KL_MESSAGE
-                        );
-                    }
-                    http_response_code(200);
-                    echo 'OK';
-                    return;
-                }
+if ($resolvedDevice === null) {
+    $this->RegisterUnknownEventDevice($deviceName, $eventPayload);
+
+    if ($this->ReadPropertyBoolean('Debug')) {
+        $this->LogMessage(
+            'Google event unresolved device after full-name and short-id matching: ' . $deviceName,
+            KL_MESSAGE
+        );
+    }
+    http_response_code(200);
+    echo 'OK';
+    return;
+}
 
 
 
@@ -1222,6 +1306,107 @@ class NestCameraViewer extends IPSModuleStrict
             ], 500);
         }
     }
+
+    public function AssignUnknownEventDevice(string $eventDeviceID, string $mappedDeviceID): void
+{
+    $this->SaveManualEventDeviceMapping($eventDeviceID, $mappedDeviceID);
+}
+
+
+    private function RegisterUnknownEventDevice(string $eventDeviceName, array $eventPayload): void
+{
+    $eventDeviceID = $this->GetDeviceShortId($eventDeviceName);
+    if ($eventDeviceID === '') {
+        return;
+    }
+
+    $json = $this->ReadAttributeString('UnknownEventDevicesJson');
+    if (!is_string($json) || $json === '') {
+        $unknown = [];
+    } else {
+        $unknown = json_decode($json, true);
+        if (!is_array($unknown)) {
+            $unknown = [];
+        }
+    }
+
+    $eventEntries = $eventPayload['resourceUpdate']['events'] ?? [];
+    $eventTypes = [];
+    if (is_array($eventEntries)) {
+        $eventTypes = array_keys($eventEntries);
+    }
+
+    $unknown[$eventDeviceID] = [
+        'EventDeviceID'    => $eventDeviceID,
+        'LastFullEventName'=> $eventDeviceName,
+        'LastEventType'    => isset($eventTypes[0]) ? (string) $eventTypes[0] : '',
+        'LastSeenAt'       => (string) ($eventPayload['timestamp'] ?? '')
+    ];
+
+    $this->WriteAttributeString('UnknownEventDevicesJson', json_encode($unknown));
+}
+
+private function GetUnknownEventDevices(): array
+{
+    $json = $this->ReadAttributeString('UnknownEventDevicesJson');
+    if (!is_string($json) || $json === '') {
+        return [];
+    }
+
+    $rows = json_decode($json, true);
+    if (!is_array($rows)) {
+        return [];
+    }
+
+    return $rows;
+}
+
+
+private function SaveManualEventDeviceMapping(string $eventDeviceID, string $mappedDeviceID): void
+{
+    $eventDeviceID = trim($eventDeviceID);
+    $mappedDeviceID = trim($mappedDeviceID);
+
+    if ($eventDeviceID === '' || $mappedDeviceID === '') {
+        throw new Exception('EventDeviceID and MappedDeviceID are required');
+    }
+
+    $json = $this->ReadPropertyString('ManualEventDeviceMappings');
+    if ($json === '') {
+        $rows = [];
+    } else {
+        $rows = json_decode($json, true);
+        if (!is_array($rows)) {
+            $rows = [];
+        }
+    }
+
+    $updated = false;
+    foreach ($rows as &$row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        if ((string) ($row['EventDeviceID'] ?? '') === $eventDeviceID) {
+            $row['MappedDeviceID'] = $mappedDeviceID;
+            $updated = true;
+            break;
+        }
+    }
+    unset($row);
+
+    if (!$updated) {
+        $rows[] = [
+            'EventDeviceID'  => $eventDeviceID,
+            'MappedDeviceID' => $mappedDeviceID
+        ];
+    }
+
+    IPS_SetProperty($this->InstanceID, 'ManualEventDeviceMappings', json_encode(array_values($rows)));
+    IPS_ApplyChanges($this->InstanceID);
+}
+
+
 
     private function UpdateRelevantDeviceValues(array $devices): void
     {
