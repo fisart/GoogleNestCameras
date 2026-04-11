@@ -1428,12 +1428,21 @@ class NestCameraViewer extends IPSModuleStrict
             $deviceShortId = $this->GetDeviceShortId($deviceName);
 
             $deviceCatalog[$deviceName] = [
-                'device_name'     => $deviceName,
-                'device_id_short' => $deviceShortId,
-                'device_type'     => (string) ($device['type'] ?? ''),
-                'label'           => (string) ($device['label'] ?? $deviceShortId),
-                'category_ident'  => $deviceCategoryIdent,
-                'category_id'     => $deviceCategoryID
+                'device_name'                    => $deviceName,
+                'device_id_full'                 => $deviceName,
+                'device_id_short'                => $deviceShortId,
+                'device_type'                    => (string) ($device['type'] ?? ''),
+                'label'                          => (string) ($device['label'] ?? $deviceShortId),
+                'category_ident'                 => $deviceCategoryIdent,
+                'category_id'                    => $deviceCategoryID,
+                'motion_var_id'                  => 0,
+                'last_motion_var_id'             => 0,
+                'person_var_id'                  => 0,
+                'last_person_var_id'             => 0,
+                'sound_var_id'                   => 0,
+                'last_sound_var_id'              => 0,
+                'doorbell_chime_var_id'          => 0,
+                'last_doorbell_chime_var_id'     => 0
             ];
             $traits = $device['raw']['traits'] ?? [];
             if (!is_array($traits)) {
@@ -1441,6 +1450,7 @@ class NestCameraViewer extends IPSModuleStrict
             }
             if (is_array($traits) && array_key_exists('sdm.devices.traits.CameraMotion', $traits)) {
                 $motionVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'MotionDetected', 'Motion Detected', VARIABLETYPE_BOOLEAN);
+                $deviceCatalog[$deviceName]['motion_var_id'] = $motionVarID;
                 $motionCatalogKey = $deviceCategoryIdent . '__MotionDetected';
                 $knownVariableCatalogKeys[] = $motionCatalogKey;
                 $variableCatalog[$motionCatalogKey] = [
@@ -1457,6 +1467,7 @@ class NestCameraViewer extends IPSModuleStrict
                 ];
 
                 $lastMotionVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'LastMotionAt', 'Last Motion At', VARIABLETYPE_STRING);
+                $deviceCatalog[$deviceName]['last_motion_var_id'] = $lastMotionVarID;
                 $lastMotionCatalogKey = $deviceCategoryIdent . '__LastMotionAt';
                 $knownVariableCatalogKeys[] = $lastMotionCatalogKey;
                 $variableCatalog[$lastMotionCatalogKey] = [
@@ -1475,6 +1486,7 @@ class NestCameraViewer extends IPSModuleStrict
 
             if (is_array($traits) && array_key_exists('sdm.devices.traits.CameraPerson', $traits)) {
                 $personVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'PersonDetected', 'Person Detected', VARIABLETYPE_BOOLEAN);
+                $deviceCatalog[$deviceName]['person_var_id'] = $personVarID;
                 $personCatalogKey = $deviceCategoryIdent . '__PersonDetected';
                 $knownVariableCatalogKeys[] = $personCatalogKey;
                 $variableCatalog[$personCatalogKey] = [
@@ -1491,6 +1503,7 @@ class NestCameraViewer extends IPSModuleStrict
                 ];
 
                 $lastPersonVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'LastPersonAt', 'Last Person At', VARIABLETYPE_STRING);
+                $deviceCatalog[$deviceName]['last_person_var_id'] = $lastPersonVarID;
                 $lastPersonCatalogKey = $deviceCategoryIdent . '__LastPersonAt';
                 $knownVariableCatalogKeys[] = $lastPersonCatalogKey;
                 $variableCatalog[$lastPersonCatalogKey] = [
@@ -1509,6 +1522,7 @@ class NestCameraViewer extends IPSModuleStrict
 
             if (is_array($traits) && array_key_exists('sdm.devices.traits.CameraSound', $traits)) {
                 $soundVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'SoundDetected', 'Sound Detected', VARIABLETYPE_BOOLEAN);
+                $deviceCatalog[$deviceName]['sound_var_id'] = $soundVarID;
                 $soundCatalogKey = $deviceCategoryIdent . '__SoundDetected';
                 $knownVariableCatalogKeys[] = $soundCatalogKey;
                 $variableCatalog[$soundCatalogKey] = [
@@ -1525,6 +1539,7 @@ class NestCameraViewer extends IPSModuleStrict
                 ];
 
                 $lastSoundVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'LastSoundAt', 'Last Sound At', VARIABLETYPE_STRING);
+                $deviceCatalog[$deviceName]['last_sound_var_id'] = $lastSoundVarID;
                 $lastSoundCatalogKey = $deviceCategoryIdent . '__LastSoundAt';
                 $knownVariableCatalogKeys[] = $lastSoundCatalogKey;
                 $variableCatalog[$lastSoundCatalogKey] = [
@@ -1543,6 +1558,7 @@ class NestCameraViewer extends IPSModuleStrict
 
             if (is_array($traits) && array_key_exists('sdm.devices.traits.DoorbellChime', $traits)) {
                 $chimeVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'DoorbellChimeDetected', 'Doorbell Chime Detected', VARIABLETYPE_BOOLEAN);
+                $deviceCatalog[$deviceName]['doorbell_chime_var_id'] = $chimeVarID;
                 $chimeCatalogKey = $deviceCategoryIdent . '__DoorbellChimeDetected';
                 $knownVariableCatalogKeys[] = $chimeCatalogKey;
                 $variableCatalog[$chimeCatalogKey] = [
@@ -1559,6 +1575,7 @@ class NestCameraViewer extends IPSModuleStrict
                 ];
 
                 $lastChimeVarID = $this->EnsureSpecialDeviceVariable($deviceCategoryID, 'LastDoorbellChimeAt', 'Last Doorbell Chime At', VARIABLETYPE_STRING);
+                $deviceCatalog[$deviceName]['last_doorbell_chime_var_id'] = $lastChimeVarID;
                 $lastChimeCatalogKey = $deviceCategoryIdent . '__LastDoorbellChimeAt';
                 $knownVariableCatalogKeys[] = $lastChimeCatalogKey;
                 $variableCatalog[$lastChimeCatalogKey] = [
