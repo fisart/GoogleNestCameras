@@ -63,6 +63,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterPropertyInteger('AutoRefreshSeconds', 0);
         $this->RegisterPropertyInteger('MotionPulseSeconds', 10);
         $this->RegisterTimer('RefreshTimer', 0, 'NESTCAM_AutoRefresh($_IPS[\'TARGET\']);');
+        $this->RegisterTimer('PulseResetTimer', 0, 'NESTCAM_ProcessPulseReset($_IPS[\'TARGET\']);');
         // Attributes
         $this->RegisterAttributeString('CachedDevicesJson', '[]');
         $this->RegisterAttributeString('LastOfferSummary', '');
@@ -78,6 +79,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterAttributeString('KnownDeviceCategoryIdentsJson', '[]');
         $this->RegisterAttributeString('KnownVariableCatalogKeysJson', '[]');
         $this->RegisterAttributeInteger('ManagedActionScriptID', 0);
+        $this->RegisterAttributeString('PulseResetQueueJson', '{}');
         // Viewer variables
         $this->RegisterVariableString('ViewerHTML', 'Viewer', '~HTMLBox', 10);
         $this->RegisterVariableString('StreamStatus', 'Stream Status', '', 20);
@@ -238,7 +240,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->SetTimerInterval('RefreshTimer', 0);
 
         $this->UnregisterHook('webhook_for_google_events');
-
+        $this->SetTimerInterval('PulseResetTimer', 0);
         $registeredHookName = $this->ReadAttributeString('RegisteredHookName');
         if (is_string($registeredHookName) && $registeredHookName !== '') {
             $this->UnregisterHook($registeredHookName);
@@ -1606,14 +1608,78 @@ class NestCameraViewer extends IPSModuleStrict
     private function ScheduleMotionReset(int $variableID): void
     {
         $seconds = max(1, $this->ReadPropertyInteger('MotionPulseSeconds'));
+        $dueAt = time() + $seconds;
 
-        $script = '<?php '
-            . 'if (IPS_VariableExists(' . $variableID . ')) { '
-            . 'SetValueBoolean(' . $variableID . ', false); '
-            . '}';
+        $queueJson = $this->ReadAttributeString('PulseResetQueueJson');
+        if (!is_string($queueJson) || $queueJson === '') {
+            $queue = [];
+        } else {
+            $queue = json_decode($queueJson, true);
+            if (!is_array($queue)) {
+                $queue = [];
+            }
+        }
 
-        IPS_RunScriptText($script, false, $seconds);
+        $queue[(string) $variableID] = $dueAt;
+        $this->WriteAttributeString('PulseResetQueueJson', json_encode($queue));
+
+        $this->ArmPulseResetTimer($queue);
     }
+
+    private function ArmPulseResetTimer(array $queue): void
+    {
+        if (count($queue) === 0) {
+            $this->SetTimerInterval('PulseResetTimer', 0);
+            return;
+        }
+
+        $nextDueAt = min(array_map('intval', $queue));
+        $milliseconds = max(1, ($nextDueAt - time()) * 1000);
+
+        $this->SetTimerInterval('PulseResetTimer', $milliseconds);
+    }
+
+    public function ProcessPulseReset(): void
+    {
+        $queueJson = $this->ReadAttributeString('PulseResetQueueJson');
+        if (!is_string($queueJson) || $queueJson === '') {
+            $this->SetTimerInterval('PulseResetTimer', 0);
+            return;
+        }
+
+        $queue = json_decode($queueJson, true);
+        if (!is_array($queue)) {
+            $this->WriteAttributeString('PulseResetQueueJson', '{}');
+            $this->SetTimerInterval('PulseResetTimer', 0);
+            return;
+        }
+
+        $now = time();
+
+        foreach ($queue as $variableIDText => $dueAt) {
+            $variableID = (int) $variableIDText;
+            $dueAt = (int) $dueAt;
+
+            if ($variableID <= 0) {
+                unset($queue[$variableIDText]);
+                continue;
+            }
+
+            if ($dueAt > $now) {
+                continue;
+            }
+
+            if (IPS_VariableExists($variableID)) {
+                SetValueBoolean($variableID, false);
+            }
+
+            unset($queue[$variableIDText]);
+        }
+
+        $this->WriteAttributeString('PulseResetQueueJson', json_encode($queue));
+        $this->ArmPulseResetTimer($queue);
+    }
+
 
     private function UpdateDeviceValues(array $devices): void
     {
