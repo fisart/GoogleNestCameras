@@ -1958,7 +1958,11 @@ class NestCameraViewer extends IPSModuleStrict
             $fieldPath === 'heatCelsius'
         ) {
             if ($type === 'float') {
-                $profile = '~Temperature';
+                if (IPS_VariableProfileExists('Temperatur.Raum.2')) {
+                    $profile = 'Temperatur.Raum.2';
+                } else {
+                    $profile = '~Temperature';
+                }
             }
         }
         if ($traitName === 'sdm.devices.traits.ThermostatMode' && $fieldPath === 'mode') {
