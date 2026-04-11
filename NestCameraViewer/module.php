@@ -787,16 +787,20 @@ class NestCameraViewer extends IPSModuleStrict
                         $deviceCatalog = [];
                     }
                 }
+                if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google Xevent X1', KL_MESSAGE);
                 $eventEntries = $eventPayload['resourceUpdate']['events'] ?? [];
                 if (
                     is_array($eventEntries) &&
                     array_key_exists('sdm.devices.events.CameraMotion.Motion', $eventEntries) &&
                     array_key_exists($deviceName, $deviceCatalog)
                 ) {
+                    if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google Xevent X2', KL_MESSAGE);
                     $deviceCategoryID = (int) ($deviceCatalog[$deviceName]['category_id'] ?? 0);
                     if ($deviceCategoryID > 0 && IPS_CategoryExists($deviceCategoryID)) {
                         $motionVarID = @IPS_GetObjectIDByIdent('MotionDetected', $deviceCategoryID);
+                        if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google Xevent X3', KL_MESSAGE);
                         if ($motionVarID !== false && IPS_VariableExists($motionVarID)) {
+                            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google Xevent X4', KL_MESSAGE);
                             SetValueBoolean($motionVarID, true);
                             $this->ScheduleMotionReset($motionVarID);
                         }
