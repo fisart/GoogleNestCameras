@@ -763,12 +763,10 @@ class NestCameraViewer extends IPSModuleStrict
                     return;
                 }
 
-                if ($this->ReadPropertyBoolean('Debug')) {
-                    $this->LogMessage(
-                        'Google event received: ' . json_encode($eventPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-                        KL_MESSAGE
-                    );
-                }
+                if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage(
+                    'Google event received: ' . json_encode($eventPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                    KL_MESSAGE
+                );
 
                 $deviceName = (string) ($eventPayload['resourceUpdate']['name'] ?? '');
                 if ($deviceName === '') {
@@ -787,7 +785,6 @@ class NestCameraViewer extends IPSModuleStrict
                         $deviceCatalog = [];
                     }
                 }
-
                 $eventEntries = $eventPayload['resourceUpdate']['events'] ?? [];
                 if (
                     is_array($eventEntries) &&
@@ -795,31 +792,16 @@ class NestCameraViewer extends IPSModuleStrict
                     array_key_exists($deviceName, $deviceCatalog)
                 ) {
                     $deviceCategoryID = (int) ($deviceCatalog[$deviceName]['category_id'] ?? 0);
-                    if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION branch entered device=' . $deviceName, KL_MESSAGE);
-                    if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION category_id=' . (string) $deviceCategoryID, KL_MESSAGE);
-                    if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION category exists=' . (($deviceCategoryID > 0 && IPS_CategoryExists($deviceCategoryID)) ? 'yes' : 'no'), KL_MESSAGE);
-
                     if ($deviceCategoryID > 0 && IPS_CategoryExists($deviceCategoryID)) {
                         $motionVarID = @IPS_GetObjectIDByIdent('MotionDetected', $deviceCategoryID);
-                        if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION MotionDetected lookup=' . json_encode($motionVarID), KL_MESSAGE);
-                        if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION MotionDetected exists=' . (($motionVarID !== false && IPS_VariableExists($motionVarID)) ? 'yes' : 'no'), KL_MESSAGE);
-
                         if ($motionVarID !== false && IPS_VariableExists($motionVarID)) {
-                            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION writing MotionDetected=true varID=' . (string) $motionVarID, KL_MESSAGE);
                             SetValueBoolean($motionVarID, true);
                             $this->ScheduleMotionReset($motionVarID);
-                            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION scheduled reset varID=' . (string) $motionVarID . ' pulseSeconds=' . (string) $this->ReadPropertyInteger('MotionPulseSeconds'), KL_MESSAGE);
-                            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION postwrite MotionDetected=' . (GetValueBoolean($motionVarID) ? 'true' : 'false'), KL_MESSAGE);
                         }
 
                         $lastMotionVarID = @IPS_GetObjectIDByIdent('LastMotionAt', $deviceCategoryID);
-                        if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION LastMotionAt lookup=' . json_encode($lastMotionVarID), KL_MESSAGE);
-                        if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION LastMotionAt exists=' . (($lastMotionVarID !== false && IPS_VariableExists($lastMotionVarID)) ? 'yes' : 'no'), KL_MESSAGE);
-
                         if ($lastMotionVarID !== false && IPS_VariableExists($lastMotionVarID)) {
-                            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION writing LastMotionAt=' . (string) ($eventPayload['timestamp'] ?? '') . ' varID=' . (string) $lastMotionVarID, KL_MESSAGE);
                             SetValueString($lastMotionVarID, (string) ($eventPayload['timestamp'] ?? ''));
-                            if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('MOTION postwrite LastMotionAt=' . (string) GetValueString($lastMotionVarID), KL_MESSAGE);
                         }
 
                         if ($this->ReadPropertyBoolean('Debug')) {
@@ -827,13 +809,14 @@ class NestCameraViewer extends IPSModuleStrict
                         }
                     }
                 }
-
                 if (!array_key_exists($deviceName, $deviceCatalog)) {
                     if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event ignored unknown device until scheduled/manual discovery refresh: ' . $deviceName, KL_MESSAGE);
                     http_response_code(200);
                     echo 'OK';
                     return;
                 }
+
+
 
                 $device = $this->FetchSingleDevice($deviceName);
                 if ($device === null) {
@@ -1067,11 +1050,11 @@ class NestCameraViewer extends IPSModuleStrict
                             $this->SetValue('ExpiresAt', '');
 
                             $this->SendJson([
-                                'ok'              => false,
+                                'ok'             => false,
                                 'restartRequired' => true,
-                                'error'           => 'Stream session is no longer valid',
-                                'httpCode'        => $result['httpCode'],
-                                'raw'             => $raw
+                                'error'          => 'Stream session is no longer valid',
+                                'httpCode'       => $result['httpCode'],
+                                'raw'            => $raw
                             ], 200);
                             return;
                         }
@@ -1093,7 +1076,6 @@ class NestCameraViewer extends IPSModuleStrict
                         'expiresAt' => $data['results']['expiresAt'] ?? ''
                     ]);
                     return;
-
                 case 'stop':
                     $this->RequireWebhookAuthForApi();
                     $deviceName = $this->ResolveRequestDeviceName();
@@ -1148,7 +1130,6 @@ class NestCameraViewer extends IPSModuleStrict
                     $this->SetValue('ExpiresAt', '');
                     $this->SendJson(['ok' => true]);
                     return;
-
                 default:
                     $this->SendJson([
                         'ok'    => false,
