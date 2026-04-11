@@ -731,7 +731,7 @@ class NestCameraViewer extends IPSModuleStrict
                 'caption' => 'Rebuild Camera Viewer HTML',
                 'onClick' => 'NESTCAM_RebuildViewer($id);'
             ]
-        ];
+        ]
 
         return json_encode($form);
     }
