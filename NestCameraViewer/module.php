@@ -257,7 +257,15 @@ class NestCameraViewer extends IPSModuleStrict
 
     public function GetMatchedDevices(): string
     {
-        $manualMappings = $this->GetManualEventDeviceMappings();
+        $json = $this->ReadPropertyString('ManualEventDeviceMappings');
+        if (!is_string($json) || $json === '') {
+            $manualMappings = [];
+        } else {
+            $manualMappings = json_decode($json, true);
+            if (!is_array($manualMappings)) {
+                $manualMappings = [];
+            }
+        }
 
         $deviceCatalogJson = $this->ReadAttributeString('DeviceCatalogJson');
         if (!is_string($deviceCatalogJson) || $deviceCatalogJson === '') {
@@ -271,7 +279,18 @@ class NestCameraViewer extends IPSModuleStrict
 
         $result = [];
 
-        foreach ($manualMappings as $eventDeviceID => $mappedDeviceID) {
+        foreach ($manualMappings as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $eventDeviceID = (string) ($row['EventDeviceID'] ?? '');
+            $mappedDeviceID = (string) ($row['MappedDeviceID'] ?? '');
+
+            if ($eventDeviceID === '' || $mappedDeviceID === '') {
+                continue;
+            }
+
             $matchedEntry = null;
 
             foreach ($deviceCatalog as $entry) {
@@ -279,24 +298,26 @@ class NestCameraViewer extends IPSModuleStrict
                     continue;
                 }
 
-                if ((string) ($entry['device_id_short'] ?? '') === (string) $mappedDeviceID) {
+                if ((string) ($entry['device_id_short'] ?? '') === $mappedDeviceID) {
                     $matchedEntry = $entry;
                     break;
                 }
             }
 
             $result[] = [
-                'EventDeviceID'    => (string) $eventDeviceID,
-                'MappedDeviceID'   => (string) $mappedDeviceID,
-                'Label'            => (string) ($matchedEntry['label'] ?? ''),
-                'Type'             => (string) ($matchedEntry['device_type'] ?? ''),
-                'DeviceName'       => (string) ($matchedEntry['device_name'] ?? ''),
-                'CategoryID'       => (int) ($matchedEntry['category_id'] ?? 0)
+                'EventDeviceID'  => $eventDeviceID,
+                'MappedDeviceID' => $mappedDeviceID,
+                'Label'          => (string) ($matchedEntry['label'] ?? ''),
+                'Type'           => (string) ($matchedEntry['device_type'] ?? ''),
+                'DeviceName'     => (string) ($matchedEntry['device_name'] ?? ''),
+                'CategoryID'     => (int) ($matchedEntry['category_id'] ?? 0)
             ];
         }
 
         return json_encode($result);
     }
+
+
     public function GetConfigurationForm(): string
     {
         $form = [
