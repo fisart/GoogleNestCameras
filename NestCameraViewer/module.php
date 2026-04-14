@@ -1319,6 +1319,13 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RemoveUnknownEventDevice($eventDeviceID);
     }
 
+
+    public function GetCurrentDeviceList(): string
+    {
+        return $this->ReadAttributeString('DeviceCatalogJson');
+    }
+
+
     private function RegisterUnknownEventDevice(string $eventDeviceName, array $eventPayload): void
     {
         $eventDeviceID = $this->GetDeviceShortId($eventDeviceName);
