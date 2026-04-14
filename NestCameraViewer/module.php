@@ -81,6 +81,7 @@ class NestCameraViewer extends IPSModuleStrict
         $this->RegisterAttributeString('KnownVariableCatalogKeysJson', '[]');
         $this->RegisterAttributeInteger('ManagedActionScriptID', 0);
         $this->RegisterAttributeString('UnknownEventDevicesJson', '{}');
+        $this->RegisterAttributeString('EventCorrelationCacheJson', '{}');
         $this->RegisterAttributeString('PulseResetQueueJson', '{}');
         // Viewer variables
         $this->RegisterVariableString('ViewerHTML', 'Viewer', '~HTMLBox', 10);
@@ -867,7 +868,7 @@ class NestCameraViewer extends IPSModuleStrict
                 }
 
                 $resolvedDevice = $this->ResolveEventDeviceEntry($deviceName);
-
+                $this->ProcessUnknownEventFilter($eventPayload, $resolvedDevice);
                 if ($this->ReadPropertyBoolean('Debug')) {
                     $this->LogMessage(
                         'Google EVENT resolve deviceName=' . $deviceName .
@@ -971,8 +972,6 @@ class NestCameraViewer extends IPSModuleStrict
                 }
 
                 if ($resolvedDevice === null) {
-                    $this->RegisterUnknownEventDevice($deviceName, $eventPayload);
-
                     if ($this->ReadPropertyBoolean('Debug')) {
                         $this->LogMessage(
                             'Google event unresolved device after full-name and short-id matching: ' . $deviceName,
@@ -1323,6 +1322,126 @@ class NestCameraViewer extends IPSModuleStrict
     public function GetCurrentDeviceList(): string
     {
         return $this->ReadAttributeString('DeviceCatalogJson');
+    }
+
+    private function GetEventCorrelationCache(): array
+    {
+        $json = $this->ReadAttributeString('EventCorrelationCacheJson');
+        if (!is_string($json) || $json === '') {
+            return [];
+        }
+
+        $rows = json_decode($json, true);
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        return $rows;
+    }
+
+
+    private function CleanupEventCorrelationCache(array $cache): array
+    {
+        $now = time();
+        $maxAge = 600; // 10 minutes
+
+        foreach ($cache as $eventId => $row) {
+            if (!is_array($row)) {
+                unset($cache[$eventId]);
+                continue;
+            }
+
+            $lastSeenUnix = (int) ($row['last_seen_unix'] ?? 0);
+            if ($lastSeenUnix <= 0 || ($now - $lastSeenUnix) > $maxAge) {
+                unset($cache[$eventId]);
+            }
+        }
+
+        return $cache;
+    }
+
+    private function ProcessUnknownEventFilter(array $eventPayload, ?array $resolvedDevice): void
+    {
+        $outerEventId = trim((string) ($eventPayload['eventId'] ?? ''));
+        $eventDeviceName = trim((string) ($eventPayload['resourceUpdate']['name'] ?? ''));
+        $eventDeviceID = $this->GetDeviceShortId($eventDeviceName);
+        $userId = trim((string) ($eventPayload['userId'] ?? ''));
+
+        if ($outerEventId === '' || $eventDeviceID === '') {
+            return;
+        }
+
+        $cache = $this->GetEventCorrelationCache();
+        $cache = $this->CleanupEventCorrelationCache($cache);
+
+        if (!isset($cache[$outerEventId]) || !is_array($cache[$outerEventId])) {
+            $cache[$outerEventId] = [
+                'event_id'             => $outerEventId,
+                'timestamp'            => (string) ($eventPayload['timestamp'] ?? ''),
+                'last_seen_unix'       => time(),
+                'resolved_devices'     => [],
+                'unresolved_devices'   => [],
+                'users'                => [],
+                'last_event_type'      => ''
+            ];
+        }
+
+        $eventEntries = $eventPayload['resourceUpdate']['events'] ?? [];
+        $eventTypes = is_array($eventEntries) ? array_keys($eventEntries) : [];
+        $lastEventType = isset($eventTypes[0]) ? (string) $eventTypes[0] : '';
+
+        $cache[$outerEventId]['timestamp'] = (string) ($eventPayload['timestamp'] ?? '');
+        $cache[$outerEventId]['last_seen_unix'] = time();
+        $cache[$outerEventId]['last_event_type'] = $lastEventType;
+
+        if ($userId !== '') {
+            $cache[$outerEventId]['users'][$userId] = true;
+        }
+
+        if ($resolvedDevice !== null) {
+            $resolvedShortId = trim((string) ($resolvedDevice['device_id_short'] ?? ''));
+            if ($resolvedShortId !== '') {
+                $cache[$outerEventId]['resolved_devices'][$resolvedShortId] = true;
+            }
+        } else {
+            $cache[$outerEventId]['unresolved_devices'][$eventDeviceID] = [
+                'EventDeviceID'     => $eventDeviceID,
+                'LastFullEventName' => $eventDeviceName,
+                'LastEventType'     => $lastEventType,
+                'LastSeenAt'        => (string) ($eventPayload['timestamp'] ?? '')
+            ];
+        }
+
+        $hasResolvedSibling = count($cache[$outerEventId]['resolved_devices']) > 0;
+
+        if ($hasResolvedSibling && count($cache[$outerEventId]['unresolved_devices']) > 0) {
+            foreach ($cache[$outerEventId]['unresolved_devices'] as $unknownRow) {
+                if (!is_array($unknownRow)) {
+                    continue;
+                }
+
+                $unknownJson = $this->ReadAttributeString('UnknownEventDevicesJson');
+                if (!is_string($unknownJson) || $unknownJson === '') {
+                    $unknownDevices = [];
+                } else {
+                    $unknownDevices = json_decode($unknownJson, true);
+                    if (!is_array($unknownDevices)) {
+                        $unknownDevices = [];
+                    }
+                }
+
+                $unknownDevices[(string) $unknownRow['EventDeviceID']] = $unknownRow;
+                $this->WriteAttributeString('UnknownEventDevicesJson', json_encode($unknownDevices));
+            }
+        }
+
+        $this->SaveEventCorrelationCache($cache);
+    }
+
+
+    private function SaveEventCorrelationCache(array $cache): void
+    {
+        $this->WriteAttributeString('EventCorrelationCacheJson', json_encode($cache));
     }
 
 
