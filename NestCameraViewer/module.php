@@ -255,6 +255,48 @@ class NestCameraViewer extends IPSModuleStrict
         parent::Destroy();
     }
 
+    public function GetMatchedDevices(): string
+    {
+        $manualMappings = $this->GetManualEventDeviceMappings();
+
+        $deviceCatalogJson = $this->ReadAttributeString('DeviceCatalogJson');
+        if (!is_string($deviceCatalogJson) || $deviceCatalogJson === '') {
+            $deviceCatalog = [];
+        } else {
+            $deviceCatalog = json_decode($deviceCatalogJson, true);
+            if (!is_array($deviceCatalog)) {
+                $deviceCatalog = [];
+            }
+        }
+
+        $result = [];
+
+        foreach ($manualMappings as $eventDeviceID => $mappedDeviceID) {
+            $matchedEntry = null;
+
+            foreach ($deviceCatalog as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                if ((string) ($entry['device_id_short'] ?? '') === (string) $mappedDeviceID) {
+                    $matchedEntry = $entry;
+                    break;
+                }
+            }
+
+            $result[] = [
+                'EventDeviceID'    => (string) $eventDeviceID,
+                'MappedDeviceID'   => (string) $mappedDeviceID,
+                'Label'            => (string) ($matchedEntry['label'] ?? ''),
+                'Type'             => (string) ($matchedEntry['device_type'] ?? ''),
+                'DeviceName'       => (string) ($matchedEntry['device_name'] ?? ''),
+                'CategoryID'       => (int) ($matchedEntry['category_id'] ?? 0)
+            ];
+        }
+
+        return json_encode($result);
+    }
     public function GetConfigurationForm(): string
     {
         $form = [
