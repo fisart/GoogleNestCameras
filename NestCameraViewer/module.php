@@ -810,6 +810,7 @@ class NestCameraViewer extends IPSModuleStrict
             try {
                 $rawBody = @file_get_contents('php://input');
                 if ($this->ReadPropertyBoolean('Debug')) $this->LogMessage('Google event raw body length: ' . (is_string($rawBody) ? strlen($rawBody) : -1), KL_MESSAGE);
+                if ($this->ReadPropertyBoolean('Debug') && is_string($rawBody)) $this->LogMessage('Google event raw body: ' . $rawBody, KL_MESSAGE);
                 if (!is_string($rawBody) || $rawBody === '') {
                     http_response_code(400);
                     echo 'Missing body';
